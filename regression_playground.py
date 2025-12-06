@@ -158,6 +158,52 @@ def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_n
 
 @app.cell
 def _(mo):
+    mo.md("### Data Parameters")
+    return
+
+
+@app.cell
+def _(mo):
+    n_points_slider = mo.ui.slider(
+        start=10, stop=200, step=10, value=50, label="Number of Points"
+    )
+    noise_slider = mo.ui.slider(
+        start=0, stop=5, step=0.1, value=1.0, label="Error SD (σ)"
+    )
+    seed_slider = mo.ui.slider(
+        start=1, stop=100, step=1, value=42, label="Random Seed"
+    )
+    return n_points_slider, noise_slider, seed_slider
+
+
+@app.cell
+def _(add_continuous3, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd):
+    _rows = [
+        mo.hstack([n_points_slider, seed_slider], justify="start", gap=4),
+    ]
+
+    # Predictor distribution (all modes except binary)
+    if not is_binary:
+        if is_multiple and not has_grouping:
+            # Continuous mode: x + z + optional w
+            _rows.append(mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4))
+            if add_continuous3.value:
+                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+        else:
+            # Basic, Binned, or Categorical mode: just x (+ optional w for categorical)
+            _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
+            if is_multiple and has_grouping and add_continuous3.value:
+                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+
+    # Error SD
+    _rows.append(noise_slider)
+
+    mo.vstack(_rows, gap=2)
+    return
+
+
+@app.cell
+def _(mo):
     mo.md("### Line Parameters")
     return
 
@@ -212,54 +258,6 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     else:
         _display = mo.hstack([slope_slider, intercept_slider], justify="start", gap=4)
     _display
-    return
-
-
-@app.cell
-def _(mo):
-    mo.md("### Data Parameters")
-    return
-
-
-@app.cell
-def _(mo):
-    n_points_slider = mo.ui.slider(
-        start=10, stop=200, step=10, value=50, label="Number of Points"
-    )
-    noise_slider = mo.ui.slider(
-        start=0, stop=5, step=0.1, value=1.0, label="Error SD (σ)"
-    )
-    seed_slider = mo.ui.slider(
-        start=1, stop=100, step=1, value=42, label="Random Seed"
-    )
-    return n_points_slider, noise_slider, seed_slider
-
-
-@app.cell
-def _(add_continuous3, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd):
-    _rows = [
-        mo.hstack([n_points_slider, seed_slider], justify="start", gap=4),
-    ]
-
-    # Predictor distribution (all modes except binary)
-    if not is_binary:
-        _rows.append(mo.md("**Predictor Distribution** — *controls where x values are centered and how spread out*"))
-        if is_multiple and not has_grouping:
-            # Continuous mode: x + z + optional w
-            _rows.append(mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4))
-            if add_continuous3.value:
-                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
-        else:
-            # Basic, Binned, or Categorical mode: just x (+ optional w for categorical)
-            _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
-            if is_multiple and has_grouping and add_continuous3.value:
-                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
-
-    # Error SD with definition
-    _rows.append(mo.md("**Error/Residual Variance** — *controls how much y deviates from the regression line*"))
-    _rows.append(noise_slider)
-
-    mo.vstack(_rows, gap=2)
     return
 
 
@@ -667,7 +665,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         X_MAX = x_mu + 3 * x_sigma
         if transform == "Log (ln x)" or transform == "Square Root (√x)":
             X_MIN = max(0.1, X_MIN)
-        x_line = np.linspace(X_MIN, X_MAX, 100)
+        x_line = np.linspace(0, 50, 100)
         if transform == "Square Root (√x)":
             x_line_transformed = np.sqrt(np.maximum(x_line, 0))
         elif transform == "Square (x²)":
@@ -829,10 +827,6 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 x_axis_title += f" ({w_label} held at {w_held:.1f})"
 
         # Calculate dynamic y-axis range based on data (always start at 0)
-        y_data_max = np.max(y_data)
-        y_padding = y_data_max * 0.1
-        y_range = [0, y_data_max + y_padding]
-
         fig.update_layout(
             template="plotly_white",
             width=600,
@@ -841,7 +835,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
-                range=[X_MIN - (X_MAX - X_MIN) * 0.05, X_MAX + (X_MAX - X_MIN) * 0.05],
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -850,7 +844,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=y_range,
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1009,7 +1003,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 )
 
         # Add true regression line
-        x_line = np.array([X_MIN, X_MAX])
+        x_line = np.array([0, 50])
         y_line = intercept + slope * x_line
         fig.add_trace(
             go.Scatter(
@@ -1068,7 +1062,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=f"{x_label} (binned)",
-                range=[X_MIN - 0.1 * x_sigma, X_MAX + 0.1 * x_sigma],
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1077,8 +1071,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[Y_MIN, Y_MAX],
-                dtick=5,
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1240,8 +1233,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[Y_MIN, Y_MAX],
-                dtick=5,
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1291,7 +1283,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         y_data = intercept + slope * x_data_transformed + np.random.normal(0, noise_slider.value, n)
 
         # For plotting the regression curve
-        x_line_smooth = np.linspace(X_MIN, X_MAX, 100)
+        x_line_smooth = np.linspace(0, 50, 100)
 
         if transform == "Square Root (√x)":
             x_line_transformed = np.sqrt(x_line_smooth)
@@ -1439,8 +1431,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
-                range=[X_MIN, X_MAX],
-                dtick=2,
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1449,8 +1440,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[Y_MIN, Y_MAX],
-                dtick=5,
+                range=[0, 50],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
