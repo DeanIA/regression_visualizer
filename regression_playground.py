@@ -345,16 +345,16 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
                 eq_parts.append(f"{b_interaction_cont:.2f}×({x_term or x_label}×{z_label})")
             if has_cont3:
                 eq_parts.append(f"{b_cont3:.1f}×{w_label}")
-            equation = f"**{y_label} = " + " + ".join(eq_parts) + "**"
+            equation = f"{y_label} = " + " + ".join(eq_parts)
     elif is_binary:
-        equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}**  (where {x_label} = 0 for {g0_label}, 1 for {g1_label})"
+        equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}  (where {x_label} = 0 for {g0_label}, 1 for {g1_label})"
     elif x_term is None:
-        equation = f"**{y_label} = {intercept:.1f}**  (constant model, no predictor)"
+        equation = f"{y_label} = {intercept:.1f}  (constant model, no predictor)"
     else:
-        equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}**"
+        equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}"
 
-    mo.md(f"# {equation}")
-    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
+    equation_output = mo.md(f"<center>\n\n# {equation}\n\n</center>")
+    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
 
 
 @app.cell
@@ -605,8 +605,8 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 
 @app.cell
 def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma):
-    # Fixed axis ranges
-    Y_MIN, Y_MAX = -15, 15
+    # Fixed axis ranges (first quadrant only - positive x and y for statistics)
+    Y_MIN, Y_MAX = 0, 15
 
     np.random.seed(seed_slider.value)
     n = n_points_slider.value
@@ -1358,7 +1358,7 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
 
 
 @app.cell
-def _(coef_text, intercept, mo, np, plot_output, reg_stats, slope, stats, transform, x_label, y_label):
+def _(coef_text, equation_output, intercept, mo, np, plot_output, reg_stats, slope, stats, transform, x_label, y_label):
     # Only show regression summary for basic linear regression
     if reg_stats is None:
         _r_summary = """### Regression Summary
@@ -1436,7 +1436,6 @@ p-value: {_f_pval:.2e}
         # Generate coefficient interpretation using OLS ESTIMATED values (not slider TRUE values)
         # Model fit section with descriptions (same for all transforms)
         _model_fit = f"""
----
 **Model Fit:**
 - **Residual SE (σ̂) = {_se:.3f}** — the standard deviation of residuals; on average, predictions are off by about this much
 - **R² = {_r_squared:.3f}** — {_r_squared*100:.1f}% of the variance in {y_label} is explained by the model
@@ -1539,11 +1538,14 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
     _right_col = mo.md(_r_summary)
+    _bottom_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
 
-    _summary_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
-
-    # Stack the summary and plot vertically
-    mo.vstack([_summary_row, plot_output], gap=2)
+    # Layout: Centered equation -> Graph -> Interpretation | Summary
+    mo.vstack([
+        equation_output,
+        plot_output,
+        _bottom_row
+    ], gap=2)
     return
 
 
