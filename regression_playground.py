@@ -337,7 +337,8 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
                 eq_parts.append(f"{b_interaction:.1f}×({x_term or x_label}×{grp_var_label})")
             if has_cont3:
                 eq_parts.append(f"{b_cont3:.1f}×{w_label}")
-            equation = f"**{y_label} = " + " + ".join(eq_parts) + f"**  (where {grp_var_label} = 0 for {g0_multi_label}, 1 for {g1_multi_label})"
+            equation = f"{y_label} = " + " + ".join(eq_parts)
+            equation_subtitle = f"where {grp_var_label} = 0 for {g0_multi_label}, 1 for {g1_multi_label}"
         else:
             # Continuous predictors mode: y = β₀ + β₁x + β₂z + β₃(x×z) + β₄w
             eq_parts = [f"{intercept:.1f}", f"{slope:.1f}×{x_term or x_label}", f"{b_cont2:.1f}×{z_label}"]
@@ -346,14 +347,22 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
             if has_cont3:
                 eq_parts.append(f"{b_cont3:.1f}×{w_label}")
             equation = f"{y_label} = " + " + ".join(eq_parts)
+            equation_subtitle = None
     elif is_binary:
-        equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}  (where {x_label} = 0 for {g0_label}, 1 for {g1_label})"
+        equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}"
+        equation_subtitle = f"where {x_label} = 0 for {g0_label}, 1 for {g1_label}"
     elif x_term is None:
-        equation = f"{y_label} = {intercept:.1f}  (constant model, no predictor)"
+        equation = f"{y_label} = {intercept:.1f}"
+        equation_subtitle = "constant model, no predictor"
     else:
         equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}"
+        equation_subtitle = None
 
-    equation_output = mo.md(f"<center><h1>{equation}</h1></center>")
+    # Build equation output with title and optional subtitle
+    if equation_subtitle:
+        equation_output = mo.md(f"**Model Equation:** {equation} *({equation_subtitle})*")
+    else:
+        equation_output = mo.md(f"**Model Equation:** {equation}")
     return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
 
 
@@ -831,10 +840,10 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                yanchor="top",
+                y=0.99,
+                xanchor="center",
+                x=0.5
             ),
             margin=dict(t=50, b=50, l=50, r=50),
         )
@@ -1056,10 +1065,10 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                yanchor="top",
+                y=0.99,
+                xanchor="center",
+                x=0.5
             ),
             margin=dict(t=50, b=50, l=50, r=50),
         )
@@ -1219,10 +1228,10 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                yanchor="top",
+                y=0.99,
+                xanchor="center",
+                x=0.5
             ),
             margin=dict(t=50, b=50, l=50, r=50),
         )
@@ -1420,10 +1429,10 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             legend=dict(
                 orientation="h",
-                yanchor="bottom",
-                y=1.02,
-                xanchor="right",
-                x=1
+                yanchor="top",
+                y=0.99,
+                xanchor="center",
+                x=0.5
             ),
             margin=dict(t=50, b=50, l=50, r=50),
         )
@@ -1494,6 +1503,11 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             "n_predictors": _n_predictors,
             "has_grouping": has_grouping,
         }
+        # Add grouping data for colored residuals plot
+        if has_grouping:
+            reg_stats["group_data"] = group_data
+            reg_stats["g0_label"] = g0_multi_label
+            reg_stats["g1_label"] = g1_multi_label
     return plot_output, reg_stats
 
 
@@ -1878,15 +1892,80 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
     # Create Residuals vs Fitted plot using OLS values (for all modes with reg_stats)
     _ols_residuals = reg_stats["ols_residuals"]
     _resid_fig = go.Figure()
-    _resid_fig.add_trace(
-        go.Scatter(
-            x=_ols_y_pred,
-            y=_ols_residuals,
-            mode="markers",
-            marker=dict(color="#636EFA", size=8, opacity=0.7),
-            name="Residuals",
+
+    # Check if we have grouping data for colored residuals
+    if reg_stats.get("is_multiple") and reg_stats.get("has_grouping") and "group_data" in reg_stats:
+        _group_data = reg_stats["group_data"]
+        _g0_label = reg_stats["g0_label"]
+        _g1_label = reg_stats["g1_label"]
+        # Add separate traces for each group with different colors
+        _mask_g0 = _group_data == 0
+        _mask_g1 = _group_data == 1
+        _resid_fig.add_trace(
+            go.Scatter(
+                x=_ols_y_pred[_mask_g0],
+                y=_ols_residuals[_mask_g0],
+                mode="markers",
+                marker=dict(color="#636EFA", size=8, opacity=0.7),
+                name=_g0_label,
+            )
         )
-    )
+        _resid_fig.add_trace(
+            go.Scatter(
+                x=_ols_y_pred[_mask_g1],
+                y=_ols_residuals[_mask_g1],
+                mode="markers",
+                marker=dict(color="#EF553B", size=8, opacity=0.7),
+                name=_g1_label,
+            )
+        )
+    elif reg_stats.get("is_binary"):
+        # Binary mode also has grouping
+        _g0_label = reg_stats["g0_label"]
+        _g1_label = reg_stats["g1_label"]
+        _x_data = reg_stats.get("x_data")
+        if _x_data is not None:
+            _mask_g0 = _x_data == 0
+            _mask_g1 = _x_data == 1
+            _resid_fig.add_trace(
+                go.Scatter(
+                    x=_ols_y_pred[_mask_g0],
+                    y=_ols_residuals[_mask_g0],
+                    mode="markers",
+                    marker=dict(color="#636EFA", size=8, opacity=0.7),
+                    name=_g0_label,
+                )
+            )
+            _resid_fig.add_trace(
+                go.Scatter(
+                    x=_ols_y_pred[_mask_g1],
+                    y=_ols_residuals[_mask_g1],
+                    mode="markers",
+                    marker=dict(color="#EF553B", size=8, opacity=0.7),
+                    name=_g1_label,
+                )
+            )
+        else:
+            _resid_fig.add_trace(
+                go.Scatter(
+                    x=_ols_y_pred,
+                    y=_ols_residuals,
+                    mode="markers",
+                    marker=dict(color="#636EFA", size=8, opacity=0.7),
+                    name="Residuals",
+                )
+            )
+    else:
+        # Default single-color residuals
+        _resid_fig.add_trace(
+            go.Scatter(
+                x=_ols_y_pred,
+                y=_ols_residuals,
+                mode="markers",
+                marker=dict(color="#636EFA", size=8, opacity=0.7),
+                name="Residuals",
+            )
+        )
     # Add horizontal line at y=0
     _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
     # Get x-axis range from fitted values
@@ -1931,7 +2010,7 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         _resid_subtitle = mo.md("*Checks model assumptions. Look for: random scatter around zero (good), patterns/funnel shapes (bad — suggests non-linearity or heteroscedasticity).*")
         _reg_with_subtitle = mo.vstack([plot_output, _reg_subtitle], gap=1)
         _resid_with_subtitle = mo.vstack([_resid_plot, _resid_subtitle], gap=1)
-        _plots_row = mo.hstack([_reg_with_subtitle, _resid_with_subtitle], widths=[1, 1], gap=2)
+        _plots_row = mo.hstack([_reg_with_subtitle, _resid_with_subtitle], widths=[1, 1], gap=2, justify="center")
     else:
         _plots_row = plot_output
 
@@ -1940,7 +2019,7 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         equation_output,
         _plots_row,
         _bottom_row
-    ], gap=2)
+    ], gap=2, align="stretch")
     return
 
 
