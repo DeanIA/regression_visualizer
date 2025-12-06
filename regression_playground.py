@@ -353,7 +353,7 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     else:
         equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}"
 
-    equation_output = mo.md(f"<center>\n\n# {equation}\n\n</center>")
+    equation_output = mo.md(f"<center><h1>{equation}</h1></center>")
     return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
 
 
@@ -808,6 +808,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         fig.update_layout(
             template="plotly_white",
             height=600,
+            title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
                 range=[X_MIN - (X_MAX - X_MIN) * 0.05, X_MAX + (X_MAX - X_MIN) * 0.05],
@@ -953,6 +954,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         fig.update_layout(
             template="plotly_white",
             height=600,
+            title="Regression Plot",
             xaxis=dict(
                 title=f"{x_label} (binned)",
                 range=[X_MIN - 0.5, X_MAX + 0.5],
@@ -1099,6 +1101,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         fig.update_layout(
             template="plotly_white",
             height=600,
+            title="Regression Plot",
             xaxis=dict(
                 title=x_label,
                 range=[-0.5, 1.5],
@@ -1294,6 +1297,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         fig.update_layout(
             template="plotly_white",
             height=600,
+            title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
                 range=[X_MIN, X_MAX],
@@ -1351,6 +1355,7 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             "ols_slope": _ols_slope,
             "ols_intercept": _ols_intercept,
             "x_data_transformed": x_data_transformed,
+            "ols_residuals": _ols_residuals,
         }
     else:
         reg_stats = None
@@ -1358,7 +1363,7 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
 
 
 @app.cell
-def _(coef_text, equation_output, intercept, mo, np, plot_output, reg_stats, slope, stats, transform, x_label, y_label):
+def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats, slope, stats, transform, x_label, y_label):
     # Only show regression summary for basic linear regression
     if reg_stats is None:
         _r_summary = """### Regression Summary
@@ -1366,6 +1371,7 @@ def _(coef_text, equation_output, intercept, mo, np, plot_output, reg_stats, slo
 """
         # Use the original coef_text (which uses TRUE/slider values) for non-basic modes
         _coef_text_final = coef_text
+        _resid_plot = None
     else:
         # Extract actual OLS regression results from the plotting cell
         _n = reg_stats["n"]
@@ -1535,15 +1541,57 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
 
+        # Create Residuals vs Fitted plot using OLS values
+        _ols_residuals = reg_stats["ols_residuals"]
+        _resid_fig = go.Figure()
+        _resid_fig.add_trace(
+            go.Scatter(
+                x=_ols_y_pred,
+                y=_ols_residuals,
+                mode="markers",
+                marker=dict(color="#636EFA", size=8, opacity=0.7),
+                name="Residuals",
+            )
+        )
+        # Add horizontal line at y=0
+        _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
+        _resid_fig.update_layout(
+            template="plotly_white",
+            height=600,
+            title="Residuals vs Fitted",
+            xaxis=dict(
+                title="Fitted Values (ŷ)",
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+            ),
+            yaxis=dict(
+                title="Residuals (y - ŷ)",
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+            ),
+            margin=dict(t=50, b=50, l=50, r=50),
+        )
+        _resid_plot = mo.ui.plotly(_resid_fig)
+
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
     _right_col = mo.md(_r_summary)
     _bottom_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
 
-    # Layout: Centered equation -> Graph -> Interpretation | Summary
+    # Create plots row: regression plot | residuals vs fitted (if available)
+    if _resid_plot is not None:
+        _plots_row = mo.hstack([plot_output, _resid_plot], widths=[1, 1], gap=2)
+    else:
+        _plots_row = plot_output
+
+    # Layout: Centered equation -> Plots -> Interpretation | Summary
     mo.vstack([
         equation_output,
-        plot_output,
+        _plots_row,
         _bottom_row
     ], gap=2)
     return
