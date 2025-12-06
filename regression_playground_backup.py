@@ -850,7 +850,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
         # Create dummy variables for bins (Bin 1 = reference)
-        # Design matrix: [1, D2, D3, ..., Dk] where Di = 1 if in bin i
+        # X matrix: [1, D2, D3, ..., Dk] where Di = 1 if observation is in bin i
         _X_design = np.column_stack([
             np.ones(n),  # Intercept
             *[(bin_indices == i).astype(float) for i in range(1, n_bins)]  # Dummies for bins 2 to k
@@ -869,7 +869,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         _ols_residuals = y_data - _ols_y_pred
 
         # Calculate statistics using OLS
-        df = n - n_bins  # n - k (number of parameters = number of bins)
+        df = n - n_bins  # n - k (k = number of bins = number of parameters)
         mse = np.sum(_ols_residuals**2) / df
         se = np.sqrt(mse)
 
@@ -877,7 +877,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         _XtX_inv = np.linalg.inv(_XtX)
         _se_betas = np.sqrt(np.diag(_XtX_inv) * mse)
 
-        # For compatibility
+        # For compatibility with existing code
         _x_mean = np.mean(x_continuous)
         ss_x = np.sum((x_continuous - _x_mean)**2)
 
@@ -1406,6 +1406,8 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             reg_stats["bin_coefs"] = _ols_bin_coefs
             reg_stats["se_betas"] = _se_betas
             reg_stats["n_bins"] = n_bins
+            reg_stats["bin_means"] = bin_means
+            reg_stats["bin_counts"] = bin_counts
         else:
             reg_stats["x_data"] = x_data_transformed
             reg_stats["ols_slope"] = _ols_slope
@@ -1434,9 +1436,35 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         _y_data = reg_stats["y_data"]
         _ols_y_pred = reg_stats["ols_y_pred"]
         _ols_intercept = reg_stats["ols_intercept"]
-        _is_binned = reg_stats.get("is_binned", False)
 
-        # Significance stars helper
+        # For non-binned modes, extract slope; for binned mode, slope doesn't exist
+        _ols_slope = reg_stats.get("ols_slope", None)
+
+        # Calculate standard errors from actual OLS (only for non-binned modes)
+        if reg_stats.get("is_binned", False):
+            # Binned mode uses se_betas from the design matrix
+            _se_intercept = 0  # Will be overwritten from se_betas
+            _se_slope = 0
+            _t_intercept = 0
+            _t_slope = 0
+            _p_intercept = 1
+            _p_slope = 1
+        elif transform == "Constant (no x)" or _ss_x == 0:
+            _se_intercept = _se / np.sqrt(_n)
+            _se_slope = 0
+            _t_intercept = _ols_intercept / _se_intercept if _se_intercept > 0 else 0
+            _t_slope = 0
+            _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+            _p_slope = 1
+        else:
+            _se_intercept = _se * np.sqrt(1/_n + _x_mean**2 / _ss_x)
+            _se_slope = _se / np.sqrt(_ss_x)
+            _t_intercept = _ols_intercept / _se_intercept if _se_intercept > 0 else 0
+            _t_slope = _ols_slope / _se_slope if _se_slope > 0 else 0
+            _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+            _p_slope = 2 * (1 - stats.t.cdf(abs(_t_slope), _df)) if _df > 0 and _se_slope > 0 else 1
+
+        # Significance stars
         def _sig_stars(p):
             if p < 0.001: return "***"
             elif p < 0.01: return "**"
@@ -1451,27 +1479,30 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         _r_squared = max(0, _r_squared)
         _adj_r_squared = 1 - (1 - _r_squared) * (_n - 1) / _df if _df > 0 else 0
 
-        if _is_binned:
-            # Binned mode with categorical dummies - R-style output
+        # Generate summary table based on mode
+        if reg_stats.get("is_binned", False):
+            # Binned mode - show intercept + bin dummies like R
             _bin_labels = reg_stats["bin_labels"]
             _bin_coefs = reg_stats["bin_coefs"]
             _se_betas = reg_stats["se_betas"]
             _n_bins = reg_stats["n_bins"]
 
-            # t-values and p-values for all coefficients
-            _t_intercept = _ols_intercept / _se_betas[0] if _se_betas[0] > 0 else 0
-            _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+            # Build coefficient rows for each bin dummy
+            _coef_rows = []
+            # Intercept row
+            _coef_rows.append(f"(Intercept)   {_ols_intercept:8.3f} {_se_betas[0]:7.3f} {_ols_intercept/_se_betas[0]:7.2f}  {2*(1-stats.t.cdf(abs(_ols_intercept/_se_betas[0]), _df)):.2e} {_sig_stars(2*(1-stats.t.cdf(abs(_ols_intercept/_se_betas[0]), _df)))}")
 
-            _t_bins = []
-            _p_bins = []
-            for _i in range(_n_bins - 1):
-                _t_val = _bin_coefs[_i] / _se_betas[_i + 1] if _se_betas[_i + 1] > 0 else 0
+            # Bin dummy rows (Bin 2, Bin 3, etc.)
+            for i in range(_n_bins - 1):
+                _bin_name = f"{x_label}{_bin_labels[i+1]}"  # e.g., "xBin 2"
+                _t_val = _bin_coefs[i] / _se_betas[i+1] if _se_betas[i+1] > 0 else 0
                 _p_val = 2 * (1 - stats.t.cdf(abs(_t_val), _df)) if _df > 0 else 1
-                _t_bins.append(_t_val)
-                _p_bins.append(_p_val)
+                _coef_rows.append(f"{_bin_name:13s} {_bin_coefs[i]:8.3f} {_se_betas[i+1]:7.3f} {_t_val:7.2f}  {_p_val:.2e} {_sig_stars(_p_val)}")
+
+            _coef_table = "\n".join(_coef_rows)
 
             # F-statistic for binned model (k-1 predictors)
-            _df_model = _n_bins - 1  # Number of dummy variables
+            _df_model = _n_bins - 1
             if _df > 0 and _r_squared < 1:
                 _f_stat = (_r_squared / _df_model) / ((1 - _r_squared) / _df)
                 _f_pval = 1 - stats.f.cdf(_f_stat, _df_model, _df)
@@ -1479,14 +1510,6 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
                 _f_stat = 0
                 _f_pval = 1
 
-            # Build R-style coefficient table
-            _coef_lines = [f"(Intercept)   {_ols_intercept:8.3f} {_se_betas[0]:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}"]
-            for _i in range(_n_bins - 1):
-                # Label like "xBin 2", "xBin 3", etc.
-                _label = f"{x_label}{_bin_labels[_i + 1]}"
-                _coef_lines.append(f"{_label:13s} {_bin_coefs[_i]:8.3f} {_se_betas[_i + 1]:7.3f} {_t_bins[_i]:7.2f}  {_p_bins[_i]:.2e} {_sig_stars(_p_bins[_i])}")
-
-            _coef_table = "\n".join(_coef_lines)
             _r_summary = f"""### Regression Summary (OLS on simulated data)
 ```
 Coefficients:
@@ -1494,7 +1517,7 @@ Coefficients:
 {_coef_table}
 ---
 Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
-Reference: {_bin_labels[0]} (baseline)
+Reference: {_bin_labels[0]}
 
 Residual SE: {_se:.3f} on {_df} df
 R-squared: {_r_squared:.4f}, Adj R²: {_adj_r_squared:.4f}
@@ -1502,31 +1525,10 @@ F-statistic: {_f_stat:.2f} on {_df_model} and {_df} DF
 p-value: {_f_pval:.2e}
 ```
 """
-            # Set placeholders for non-binned variables (won't be used in binned interpretation)
-            _ols_slope = 0
-            _se_intercept = _se_betas[0]
-            _se_slope = 0
         else:
-            # Non-binned modes: extract slope
-            _ols_slope = reg_stats["ols_slope"]
-
-            # Calculate standard errors from actual OLS
-            if transform == "Constant (no x)" or _ss_x == 0:
-                _se_intercept = _se / np.sqrt(_n)
-                _se_slope = 0
-            else:
-                _se_intercept = _se * np.sqrt(1/_n + _x_mean**2 / _ss_x)
-                _se_slope = _se / np.sqrt(_ss_x)
-
-            # t-values using OLS ESTIMATED coefficients
-            _t_intercept = _ols_intercept / _se_intercept if _se_intercept > 0 else 0
-            _t_slope = _ols_slope / _se_slope if _se_slope > 0 else 0
-
-            # p-values (two-tailed)
-            _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
-            _p_slope = 2 * (1 - stats.t.cdf(abs(_t_slope), _df)) if _df > 0 and _se_slope > 0 else 1
-
-            # F-statistic
+            # Standard summary for non-binned modes
+            _predictor_label = x_label if not reg_stats.get("is_binary", False) else "Group"
+            # F-statistic for single predictor
             if transform != "Constant (no x)" and _df > 0 and _r_squared < 1:
                 _f_stat = (_r_squared / 1) / ((1 - _r_squared) / _df)
                 _f_pval = 1 - stats.f.cdf(_f_stat, 1, _df)
@@ -1534,8 +1536,6 @@ p-value: {_f_pval:.2e}
                 _f_stat = 0
                 _f_pval = 1
 
-            # Use appropriate label for predictor in summary table
-            _predictor_label = x_label if not reg_stats.get("is_binary", False) else "Group"
             _r_summary = f"""### Regression Summary (OLS on simulated data)
 ```
 Coefficients:
@@ -1657,22 +1657,20 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
 {_model_fit}"""
         elif reg_stats.get("is_binned", False):
-            # Binned mode - categorical dummy interpretation
+            # Binned mode - categorical dummies with Bin 1 as reference
             _bin_labels = reg_stats["bin_labels"]
             _bin_coefs = reg_stats["bin_coefs"]
             _se_betas = reg_stats["se_betas"]
             _n_bins = reg_stats["n_bins"]
+            _bin_means = reg_stats["bin_means"]
 
-            _intercept_interp = f"The estimated mean of **{y_label}** for **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
+            _intercept_interp = f"The estimated mean of **{y_label}** for observations in **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
 
             # Build interpretation for each bin coefficient
             _bin_interps = []
-            for _i in range(_n_bins - 1):
-                _coef = _bin_coefs[_i]
-                _se_bin = _se_betas[_i + 1]
-                _t_bin = _coef / _se_bin if _se_bin > 0 else 0
-                _mean_bin = _ols_intercept + _coef
-
+            for i in range(_n_bins - 1):
+                _coef = _bin_coefs[i]
+                _bin_name = _bin_labels[i + 1]
                 if _coef > 0:
                     _direction = "higher"
                 elif _coef < 0:
@@ -1680,27 +1678,26 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                 else:
                     _direction = "the same as"
 
-                _bin_interps.append(
-                    f"**{_bin_labels[_i + 1]}** (β = {_coef:.2f}, SE = {_se_bin:.2f}, t = {_t_bin:.2f}): "
-                    f"Mean **{y_label}** is **{abs(_coef):.2f}** units {_direction} than {_bin_labels[0]}. "
-                    f"(Estimated mean = {_mean_bin:.2f})"
-                )
+                _expected_mean = _ols_intercept + _coef
+                if _coef != 0:
+                    _bin_interps.append(f"- **{_bin_name}** has a mean **{y_label}** that is **{abs(_coef):.2f}** units {_direction} than {_bin_labels[0]}. (Est. mean = {_expected_mean:.2f})")
+                else:
+                    _bin_interps.append(f"- **{_bin_name}** has approximately the same mean as {_bin_labels[0]}.")
 
-            _bin_interp_text = "\n\n".join(_bin_interps)
+            _bin_text = "\n".join(_bin_interps)
 
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-*Categorical model: {_bin_labels[0]} is the reference group.*
+*Bins treated as categorical factors; {_bin_labels[0]} is the reference group.*
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_betas[0]:.2f}):**
 {_intercept_interp}
 
-**Bin Differences (vs. reference):**
+**Bin Effects (differences from {_bin_labels[0]}):**
+{_bin_text}
 
-{_bin_interp_text}
-
+- *Each coefficient shows how much the mean {y_label} differs from the reference bin*
 - *SE: standard error of the estimate; smaller = more precise*
-- *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
 {_model_fit}"""
         else:
             # No transformation - standard linear regression
