@@ -68,13 +68,24 @@ def _(mo):
     continuous3_name = mo.ui.text(value="w", label="3rd Predictor Name:", placeholder="e.g., Income")
     continuous3_hold = mo.ui.slider(start=0, stop=100, step=1, value=50, label="Hold 3rd predictor at:")
 
-    # Predictor distribution controls (mean/SD like RAOS KidIQ - mom_iq mean~100, sd~15)
-    x_mean = mo.ui.number(value=5, label="X Mean:", start=-1000, stop=1000, step=0.1)
-    x_sd = mo.ui.number(value=2, label="X SD:", start=0.1, stop=100, step=0.1)
-    z_mean = mo.ui.number(value=100, label="Z Mean:", start=-1000, stop=1000, step=0.1)
-    z_sd = mo.ui.number(value=15, label="Z SD:", start=0.1, stop=100, step=0.1)
-    w_mean = mo.ui.number(value=50, label="W Mean:", start=-1000, stop=1000, step=0.1)
-    w_sd = mo.ui.number(value=10, label="W SD:", start=0.1, stop=100, step=0.1)
+    # Distribution type toggle
+    dist_type = mo.ui.dropdown(options=["Uniform", "Normal"], value="Uniform", label="Distribution:")
+
+    # Predictor range controls (uniform distribution bounds) - text inputs for narrow width
+    x_min = mo.ui.text(value="0", label="X min:")
+    x_max = mo.ui.text(value="50", label="X max:")
+    z_min = mo.ui.text(value="0", label="Z min:")
+    z_max = mo.ui.text(value="50", label="Z max:")
+    w_min = mo.ui.text(value="0", label="W min:")
+    w_max = mo.ui.text(value="50", label="W max:")
+
+    # Predictor distribution controls (normal distribution) - text inputs for narrow width
+    x_mean = mo.ui.text(value="25", label="X μ:")
+    x_sd = mo.ui.text(value="10", label="X σ:")
+    z_mean = mo.ui.text(value="25", label="Z μ:")
+    z_sd = mo.ui.text(value="10", label="Z σ:")
+    w_mean = mo.ui.text(value="25", label="W μ:")
+    w_sd = mo.ui.text(value="10", label="W σ:")
 
     # Coefficients for multiple regression
     beta_group = mo.ui.slider(start=-10, stop=10, step=0.1, value=2.0, label="Group Effect (β)")
@@ -83,7 +94,7 @@ def _(mo):
     beta_continuous2 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.5, label="2nd Predictor Effect (β)")
     beta_continuous3 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.3, label="3rd Predictor Effect (β)")
 
-    return add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name_multi, group1_name_multi, group_var_name, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd
+    return add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name_multi, group1_name_multi, group_var_name, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, z_max, z_mean, z_min, z_sd
 
 
 @app.cell
@@ -177,23 +188,34 @@ def _(mo):
 
 
 @app.cell
-def _(add_continuous3, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd):
+def _(add_continuous3, dist_type, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, z_max, z_mean, z_min, z_sd):
     _rows = [
         mo.hstack([n_points_slider, seed_slider], justify="start", gap=4),
     ]
 
-    # Predictor distribution (all modes except binary)
+    # Distribution toggle and predictor parameters (all modes except binary)
     if not is_binary:
+        _rows.append(dist_type)
+        _is_normal = dist_type.value == "Normal"
         if is_multiple and not has_grouping:
-            # Continuous mode: x + z + optional w
-            _rows.append(mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4))
+            # Continuous mode: x + z + optional w - always show min/max
+            _rows.append(mo.hstack([x_min, x_max, z_min, z_max], justify="start", gap=4))
+            # Show μ/σ only for normal distribution
+            if _is_normal:
+                _rows.append(mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4))
             if add_continuous3.value:
-                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+                _rows.append(mo.hstack([w_min, w_max], justify="start", gap=4))
+                if _is_normal:
+                    _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
         else:
             # Basic, Binned, or Categorical mode: just x (+ optional w for categorical)
-            _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
+            _rows.append(mo.hstack([x_min, x_max], justify="start", gap=4))
+            if _is_normal:
+                _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
             if is_multiple and has_grouping and add_continuous3.value:
-                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+                _rows.append(mo.hstack([w_min, w_max], justify="start", gap=4))
+                if _is_normal:
+                    _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
 
     # Error SD
     _rows.append(noise_slider)
@@ -300,7 +322,7 @@ def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider, w_mean, w_sd, x_mean, x_name, x_sd, x_transform, y_name, z_mean, z_sd):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
     x_label = "x" if is_binary else (x_name.value or "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
@@ -326,13 +348,36 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     has_interaction_cont = add_interaction_cont.value
     has_cont3 = add_continuous3.value
 
-    # Predictor distributions (mean/SD)
-    x_mu = x_mean.value
-    x_sigma = x_sd.value
-    z_mu = z_mean.value
-    z_sigma = z_sd.value
-    w_mu = w_mean.value
-    w_sigma = w_sd.value
+    # Distribution type and predictor parameters
+    is_uniform = dist_type.value == "Uniform"
+
+    # Parse text inputs to floats
+    _x_min_val = float(x_min.value) if x_min.value else 0
+    _x_max_val = float(x_max.value) if x_max.value else 50
+    _z_min_val = float(z_min.value) if z_min.value else 0
+    _z_max_val = float(z_max.value) if z_max.value else 50
+    _w_min_val = float(w_min.value) if w_min.value else 0
+    _w_max_val = float(w_max.value) if w_max.value else 50
+    _x_mean_val = float(x_mean.value) if x_mean.value else 25
+    _x_sd_val = float(x_sd.value) if x_sd.value else 10
+    _z_mean_val = float(z_mean.value) if z_mean.value else 25
+    _z_sd_val = float(z_sd.value) if z_sd.value else 10
+    _w_mean_val = float(w_mean.value) if w_mean.value else 25
+    _w_sd_val = float(w_sd.value) if w_sd.value else 10
+
+    # Predictor ranges (for uniform) or mean/sd (for normal)
+    x_lo = _x_min_val
+    x_hi = _x_max_val
+    z_lo = _z_min_val
+    z_hi = _z_max_val
+    w_lo = _w_min_val
+    w_hi = _w_max_val
+    x_mu = _x_mean_val
+    x_sigma = _x_sd_val
+    z_mu = _z_mean_val
+    z_sigma = _z_sd_val
+    w_mu = _w_mean_val
+    w_sigma = _w_sd_val
 
     # Get transformed x label for equation
     if transform == "Square Root (√x)":
@@ -380,7 +425,7 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
         equation_output = mo.md(f"**Model Equation:** {equation} *({equation_subtitle})*")
     else:
         equation_output = mo.md(f"**Model Equation:** {equation}")
-    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
+    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_term, y_label, z_hi, z_hold, z_label, z_lo
 
 
 @app.cell
@@ -630,9 +675,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 
 
 @app.cell
-def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma):
-    # Fixed axis ranges (first quadrant only - positive x and y for statistics)
-    Y_MIN, Y_MAX = 0, 15
+def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_term, y_label, z_hi, z_hold, z_label, z_lo):
+    # Fixed axis ranges
+    Y_MIN, Y_MAX = 0, 50
 
     np.random.seed(seed_slider.value)
     n = n_points_slider.value
@@ -641,8 +686,12 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
     fig = go.Figure()
 
     if is_multiple:
-        # Multiple regression mode - generate data from normal distributions
-        x_data_raw = np.random.normal(x_mu, x_sigma, n)
+        # Multiple regression mode - generate data from uniform or normal distributions
+        if is_uniform:
+            x_data_raw = np.random.uniform(x_lo, x_hi, n)
+        else:
+            # Normal distribution clipped to min/max bounds
+            x_data_raw = np.clip(np.random.normal(x_mu, x_sigma, n), x_lo, x_hi)
         # For log transform, ensure positive values
         if transform == "Log (ln x)":
             x_data_raw = np.abs(x_data_raw) + 0.1
@@ -660,9 +709,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         else:
             x_data_transformed = x_data_raw
 
-        # Transform x_line for regression curve (use ±3 SD range)
-        X_MIN = x_mu - 3 * x_sigma
-        X_MAX = x_mu + 3 * x_sigma
+        # Transform x_line for regression curve (always use min/max bounds)
+        X_MIN = x_lo
+        X_MAX = x_hi
         if transform == "Log (ln x)" or transform == "Square Root (√x)":
             X_MIN = max(0.1, X_MIN)
         x_line = np.linspace(0, 50, 100)
@@ -683,7 +732,10 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
 
             # Generate third continuous predictor if enabled
             if has_cont3:
-                w_data = np.random.uniform(0, 10, n)
+                if is_uniform:
+                    w_data = np.random.uniform(w_lo, w_hi, n)
+                else:
+                    w_data = np.clip(np.random.normal(w_mu, w_sigma, n), w_lo, w_hi)
             else:
                 w_data = np.zeros(n)
 
@@ -746,11 +798,17 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
 
         else:
             # Continuous predictors mode: y = β₀ + β₁x + β₂z + β₃(x×z) + β₄w
-            z_data = np.random.normal(z_mu, z_sigma, n)
+            if is_uniform:
+                z_data = np.random.uniform(z_lo, z_hi, n)
+            else:
+                z_data = np.clip(np.random.normal(z_mu, z_sigma, n), z_lo, z_hi)
 
             # Generate third continuous predictor if enabled
             if has_cont3:
-                w_data = np.random.normal(w_mu, w_sigma, n)
+                if is_uniform:
+                    w_data = np.random.uniform(w_lo, w_hi, n)
+                else:
+                    w_data = np.clip(np.random.normal(w_mu, w_sigma, n), w_lo, w_hi)
             else:
                 w_data = np.zeros(n)
 
@@ -766,9 +824,14 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             z_held = z_hold
             w_held = w_hold if has_cont3 else 0
 
-            # Discretize z into 3 categories: Low (< mean-1SD), Medium, High (> mean+1SD)
-            z_low_threshold = z_mu - z_sigma
-            z_high_threshold = z_mu + z_sigma
+            # Discretize z into 3 categories (thirds for uniform, ±1 SD for normal)
+            if is_uniform:
+                z_range = z_hi - z_lo
+                z_low_threshold = z_lo + z_range / 3
+                z_high_threshold = z_lo + 2 * z_range / 3
+            else:
+                z_low_threshold = z_mu - z_sigma
+                z_high_threshold = z_mu + z_sigma
             z_categories = np.where(z_data < z_low_threshold, 0,
                                     np.where(z_data > z_high_threshold, 2, 1))
 
@@ -799,8 +862,11 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                     ))
 
             # Plot regression lines for each z category
-            # Use representative z values: low = mean-1.5SD, mid = mean, high = mean+1.5SD
-            z_representative = [z_mu - 1.5 * z_sigma, z_mu, z_mu + 1.5 * z_sigma]
+            # Use representative z values: low/mid/high category centers
+            if is_uniform:
+                z_representative = [z_lo + z_range * 0.17, z_lo + z_range * 0.5, z_lo + z_range * 0.83]
+            else:
+                z_representative = [z_mu - 1.5 * z_sigma, z_mu, z_mu + 1.5 * z_sigma]
             w_held = w_hold if has_cont3 else 0
 
             for cat_idx in range(3):
@@ -835,7 +901,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -844,7 +910,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -910,16 +976,19 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         _multi_se_betas = np.sqrt(np.diag(_XtX_inv) * _multi_mse)
 
     elif is_binned:
-        # Binned mode: Generate continuous data then bin it - use normal distribution with x_mu, x_sigma
+        # Binned mode: Generate continuous data then bin it
         n_bins = n_bins_slider.value
 
-        # Generate continuous x from normal distribution
-        x_continuous = np.random.normal(x_mu, x_sigma, n)
+        # Generate continuous x from uniform or normal distribution (clipped to bounds)
+        if is_uniform:
+            x_continuous = np.random.uniform(x_lo, x_hi, n)
+        else:
+            x_continuous = np.clip(np.random.normal(x_mu, x_sigma, n), x_lo, x_hi)
         y_data = intercept + slope * x_continuous + np.random.normal(0, noise_slider.value, n)
 
-        # Calculate X range based on distribution (±3 SD)
-        X_MIN = x_mu - 3 * x_sigma
-        X_MAX = x_mu + 3 * x_sigma
+        # X range always uses min/max bounds
+        X_MIN = x_lo
+        X_MAX = x_hi
 
         # Create bin edges and assign bins
         bin_edges = np.linspace(X_MIN, X_MAX, n_bins + 1)
@@ -1062,7 +1131,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=f"{x_label} (binned)",
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1071,7 +1140,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1233,7 +1302,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1250,9 +1319,12 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             margin=dict(t=50, b=50, l=50, r=50),
         )
     else:
-        # Continuous mode with transformations - use normal distribution with x_mu, x_sigma
-        # Generate x from normal distribution
-        x_data_raw = np.random.normal(x_mu, x_sigma, n)
+        # Continuous mode with transformations
+        # Generate x from uniform or normal distribution (clipped to bounds)
+        if is_uniform:
+            x_data_raw = np.random.uniform(x_lo, x_hi, n)
+        else:
+            x_data_raw = np.clip(np.random.normal(x_mu, x_sigma, n), x_lo, x_hi)
 
         # For log transform, ensure positive values
         if transform == "Log (ln x)":
@@ -1261,9 +1333,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         elif transform == "Square Root (√x)":
             x_data_raw = np.abs(x_data_raw)
 
-        # Calculate X range based on distribution (±3 SD)
-        X_MIN = x_mu - 3 * x_sigma
-        X_MAX = x_mu + 3 * x_sigma
+        # X range always uses min/max bounds
+        X_MIN = x_lo
+        X_MAX = x_hi
         if transform == "Log (ln x)" or transform == "Square Root (√x)":
             X_MIN = max(0.1, X_MIN)
 
@@ -1431,7 +1503,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1440,7 +1512,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             ),
             yaxis=dict(
                 title=y_label,
-                range=[0, 50],
+                range=[Y_MIN, Y_MAX],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
