@@ -238,7 +238,7 @@ def _(mo):
 @app.cell
 def _(is_binary, mo):
     slope_slider = mo.ui.slider(
-        start=0, stop=50, step=0.1, value=1.0,
+        start=-25, stop=25, step=0.1, value=1.0,
         label="Slope (β₁)" if not is_binary else "Group Difference (β₁)",
         show_value=True
     )
