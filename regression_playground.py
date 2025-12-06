@@ -353,7 +353,7 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     else:
         equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}**"
 
-    mo.md(f"### Model Equation: {equation}")
+    mo.md(f"# {equation}")
     return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma
 
 
@@ -1434,14 +1434,25 @@ p-value: {_f_pval:.2e}
 """
 
         # Generate coefficient interpretation using OLS ESTIMATED values (not slider TRUE values)
+        # Model fit section with descriptions (same for all transforms)
+        _model_fit = f"""
+---
+**Model Fit:**
+- **Residual SE (σ̂) = {_se:.3f}** — the standard deviation of residuals; on average, predictions are off by about this much
+- **R² = {_r_squared:.3f}** — {_r_squared*100:.1f}% of the variance in {y_label} is explained by the model
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+
         if transform == "Constant (no x)":
             # Constant model - intercept only
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}):** The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
-
-*(True DGP: β₀ = {intercept:.1f})*
-"""
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
         elif transform == "Square Root (√x)":
             _intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
             if _ols_slope > 0:
@@ -1453,12 +1464,14 @@ p-value: {_f_pval:.2e}
             _slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
-
-*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
-"""
+**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
         elif transform == "Square (x²)":
             _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
             if _ols_slope > 0:
@@ -1470,12 +1483,14 @@ p-value: {_f_pval:.2e}
             _slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
-
-*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
-"""
+**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
         elif transform == "Log (ln x)":
             _intercept_interp = f"When **ln({x_label})=0** (i.e., {x_label}=1), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
             if _ols_slope > 0:
@@ -1487,12 +1502,14 @@ p-value: {_f_pval:.2e}
             _slope_interp = f"For every 1-unit increase in **ln({x_label})**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. A 1% increase in {x_label} corresponds to ~**{_ols_slope/100:.4f}** units change in {y_label}."
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
-
-*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
-"""
+**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
         else:
             # No transformation - standard linear regression
             _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
@@ -1510,12 +1527,14 @@ p-value: {_f_pval:.2e}
 
             _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
-
-*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
-"""
+**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
 
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
