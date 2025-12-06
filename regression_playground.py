@@ -127,42 +127,30 @@ def _(mo, model_type):
 
 
 @app.cell
-def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, is_binary, is_binned, is_continuous, is_multiple, mo, w_mean, w_sd, x_mean, x_name, x_sd, y_name, z_mean, z_sd):
-    # Build display based on model type
+def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, is_binary, is_multiple, mo, x_name, y_name):
+    # Build display based on model type - only variable names, no distribution controls
     if is_multiple and has_grouping:
         # Categorical variable mode
         _rows = [
             mo.hstack([x_name, y_name], justify="start", gap=4),
             mo.hstack([group_var_name, group0_name_multi, group1_name_multi], justify="start", gap=4),
-            mo.md("**Predictor Distribution** *(set mean/SD to match real data)*"),
-            mo.hstack([x_mean, x_sd], justify="start", gap=4),
         ]
         if add_continuous3.value:
-            _rows.insert(2, mo.hstack([continuous3_name, w_mean, w_sd], justify="start", gap=4))
+            _rows.append(continuous3_name)
         _display = mo.vstack(_rows, gap=2)
     elif is_multiple:
         # Continuous predictors mode: x + z + optional w
         _rows = [
             mo.hstack([x_name, y_name], justify="start", gap=4),
             mo.hstack([continuous2_name, add_continuous3], justify="start", gap=4),
-            mo.md("**Predictor Distributions** *(set mean/SD to match real data)*"),
-            mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4),
         ]
         if add_continuous3.value:
-            _rows.insert(2, mo.hstack([continuous3_name], justify="start", gap=4))
-            _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+            _rows.append(continuous3_name)
         _display = mo.vstack(_rows, gap=2)
     elif is_binary:
         _display = mo.hstack([y_name, group0_name, group1_name], justify="start", gap=4)
-    elif is_continuous or is_binned:
-        # Basic Linear Regression or Binned mode - show x distribution controls
-        _rows = [
-            mo.hstack([x_name, y_name], justify="start", gap=4),
-            mo.md("**Predictor Distribution** *(set mean/SD to match real data)*"),
-            mo.hstack([x_mean, x_sd], justify="start", gap=4),
-        ]
-        _display = mo.vstack(_rows, gap=2)
     else:
+        # Basic Linear Regression or Binned mode
         _display = mo.hstack([x_name, y_name], justify="start", gap=4)
     _display
     return
@@ -248,8 +236,30 @@ def _(mo):
 
 
 @app.cell
-def _(mo, n_points_slider, noise_slider, seed_slider):
-    mo.hstack([n_points_slider, noise_slider, seed_slider], justify="start", gap=4)
+def _(add_continuous3, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd):
+    _rows = [
+        mo.hstack([n_points_slider, seed_slider], justify="start", gap=4),
+    ]
+
+    # Predictor distribution (all modes except binary)
+    if not is_binary:
+        _rows.append(mo.md("**Predictor Distribution** — *controls where x values are centered and how spread out*"))
+        if is_multiple and not has_grouping:
+            # Continuous mode: x + z + optional w
+            _rows.append(mo.hstack([x_mean, x_sd, z_mean, z_sd], justify="start", gap=4))
+            if add_continuous3.value:
+                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+        else:
+            # Basic, Binned, or Categorical mode: just x (+ optional w for categorical)
+            _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
+            if is_multiple and has_grouping and add_continuous3.value:
+                _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
+
+    # Error SD with definition
+    _rows.append(mo.md("**Error/Residual Variance** — *controls how much y deviates from the regression line*"))
+    _rows.append(noise_slider)
+
+    mo.vstack(_rows, gap=2)
     return
 
 
