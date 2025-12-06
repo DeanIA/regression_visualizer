@@ -807,7 +807,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
 
         fig.update_layout(
             template="plotly_white",
+            width=600,
             height=600,
+            dragmode=False,
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
@@ -816,6 +818,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             yaxis=dict(
                 title=y_label,
@@ -824,6 +827,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             legend=dict(
                 orientation="h",
@@ -979,7 +983,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # Layout for binned
         fig.update_layout(
             template="plotly_white",
+            width=600,
             height=600,
+            dragmode=False,
             title="Regression Plot",
             xaxis=dict(
                 title=f"{x_label} (binned)",
@@ -988,6 +994,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             yaxis=dict(
                 title=y_label,
@@ -997,6 +1004,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             legend=dict(
                 orientation="h",
@@ -1138,7 +1146,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # Layout for binary
         fig.update_layout(
             template="plotly_white",
+            width=600,
             height=600,
+            dragmode=False,
             title="Regression Plot",
             xaxis=dict(
                 title=x_label,
@@ -1147,6 +1157,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 ticktext=[g0_label, g1_label],
                 zeroline=False,
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             yaxis=dict(
                 title=y_label,
@@ -1156,6 +1167,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             legend=dict(
                 orientation="h",
@@ -1334,7 +1346,9 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
 
         fig.update_layout(
             template="plotly_white",
+            width=600,
             height=600,
+            dragmode=False,
             title="Regression Plot",
             xaxis=dict(
                 title=x_axis_title,
@@ -1344,6 +1358,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             yaxis=dict(
                 title=y_label,
@@ -1353,6 +1368,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             legend=dict(
                 orientation="h",
@@ -1376,7 +1392,7 @@ With **{x_label}**, **{z_label}**, and **{w_label}** as predictors, the regressi
 To visualize a subset of the relationship, disable the 3rd predictor checkbox.
 """)
     else:
-        plot_output = mo.ui.plotly(fig)
+        plot_output = mo.ui.plotly(fig, config={"scrollZoom": False, "displayModeBar": False})
 
     # Return actual regression statistics for R summary
     # Available for basic linear regression, binary, and binned modes
@@ -1742,27 +1758,36 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         )
         # Add horizontal line at y=0
         _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
+        # Get x-axis range from fitted values
+        _resid_x_min = np.min(_ols_y_pred) - 2
+        _resid_x_max = np.max(_ols_y_pred) + 2
         _resid_fig.update_layout(
             template="plotly_white",
+            width=600,
             height=600,
+            dragmode=False,
             title="Residuals vs Fitted",
             xaxis=dict(
                 title="Fitted Values (ŷ)",
+                range=[_resid_x_min, _resid_x_max],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             yaxis=dict(
                 title="Residuals (y - ŷ)",
+                range=[-10, 10],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
                 gridcolor="lightgray",
+                fixedrange=True,
             ),
             margin=dict(t=50, b=50, l=50, r=50),
         )
-        _resid_plot = mo.ui.plotly(_resid_fig)
+        _resid_plot = mo.ui.plotly(_resid_fig, config={"scrollZoom": False, "displayModeBar": False})
 
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
