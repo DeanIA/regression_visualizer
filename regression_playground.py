@@ -1169,13 +1169,30 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # Calculate statistics for intervals (using transformed x)
         _x_mean = np.mean(x_data_transformed)
 
-        # Residuals and variance estimation
+        # Run actual OLS regression on the data for summary statistics
+        if transform == "Constant (no x)":
+            # Intercept-only model
+            _ols_intercept = np.mean(y_data)
+            _ols_slope = 0.0
+        else:
+            # Use scipy's linregress for proper OLS
+            _ols_result = stats.linregress(x_data_transformed, y_data)
+            _ols_slope = _ols_result.slope
+            _ols_intercept = _ols_result.intercept
+
+        # Residuals from OLS fit (for proper statistics)
+        _ols_y_pred = _ols_intercept + _ols_slope * x_data_transformed
+        _ols_residuals = y_data - _ols_y_pred
+
+        # Residuals from TRUE line (for visualization)
         y_pred = intercept + slope * x_data_transformed
         residuals = y_data - y_pred
 
         # Degrees of freedom depends on whether we have a slope
         df = n - 2 if transform != "Constant (no x)" else n - 1
-        mse = np.sum(residuals**2) / df
+
+        # Use OLS residuals for proper MSE/SE calculation
+        mse = np.sum(_ols_residuals**2) / df
         se = np.sqrt(mse)
 
         # Sum of squares for transformed x
@@ -1307,7 +1324,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
 
     # Check if we should show 4D warning (continuous mode with 3rd predictor)
     if is_multiple and not has_grouping and has_cont3:
-        _display = mo.md(f"""
+        plot_output = mo.md(f"""
 ### Cannot display graph with 3+ continuous predictors
 
 With **{x_label}**, **{z_label}**, and **{w_label}** as predictors, the regression relationship exists in 4-dimensional space and cannot be represented in a 2D plot.
@@ -1317,97 +1334,111 @@ With **{x_label}**, **{z_label}**, and **{w_label}** as predictors, the regressi
 To visualize a subset of the relationship, disable the 3rd predictor checkbox.
 """)
     else:
-        _display = mo.ui.plotly(fig)
-    _display
-    return
+        plot_output = mo.ui.plotly(fig)
+
+    # Return actual regression statistics for R summary
+    # Only available for basic linear regression mode
+    if not is_binned and not is_binary and not is_multiple:
+        reg_stats = {
+            "n": n,
+            "df": df,
+            "mse": mse,
+            "se": se,
+            "ss_x": ss_x,
+            "x_mean": _x_mean,
+            "y_data": y_data,
+            "ols_y_pred": _ols_y_pred,
+            "ols_slope": _ols_slope,
+            "ols_intercept": _ols_intercept,
+            "x_data_transformed": x_data_transformed,
+        }
+    else:
+        reg_stats = None
+    return plot_output, reg_stats
 
 
 @app.cell
-def _(coef_text, intercept, is_binary, is_multiple, mo, n_points_slider, noise_slider, np, slope, stats, transform, x_label, y_label):
-    # Generate R-style summary statistics
-    _n_pts = n_points_slider.value
-    _noise = noise_slider.value
-
-    # For simple regression, calculate standard errors and t-values
-    # Note: These are theoretical values based on the true model parameters
-    # In practice, you'd compute these from actual data
-
-    # Residual standard error (sigma) - this is what we set with noise slider
-    _sigma = _noise
-
-    # Degrees of freedom
-    if is_multiple:
-        _df = _n_pts - 3  # Approximate for multivariable
-    elif is_binary:
-        _df = _n_pts - 2
-    elif transform == "Constant (no x)":
-        _df = _n_pts - 1
+def _(coef_text, mo, np, plot_output, reg_stats, stats, transform, x_label):
+    # Only show regression summary for basic linear regression
+    if reg_stats is None:
+        _r_summary = """### Regression Summary
+*Summary statistics only available for Basic Linear Regression mode.*
+"""
     else:
-        _df = _n_pts - 2
+        # Extract actual OLS regression results from the plotting cell
+        _n = reg_stats["n"]
+        _df = reg_stats["df"]
+        _se = reg_stats["se"]
+        _ss_x = reg_stats["ss_x"]
+        _x_mean = reg_stats["x_mean"]
+        _y_data = reg_stats["y_data"]
+        _ols_y_pred = reg_stats["ols_y_pred"]
+        _ols_slope = reg_stats["ols_slope"]
+        _ols_intercept = reg_stats["ols_intercept"]
 
-    # Standard errors (approximate, assuming reasonable x spread)
-    _se_intercept = _sigma / np.sqrt(_n_pts) * 2  # Rough approximation
-    _se_slope = _sigma / np.sqrt(_n_pts) * 0.5 if transform != "Constant (no x)" else 0
-
-    # t-values
-    _t_intercept = intercept / _se_intercept if _se_intercept > 0 else 0
-    _t_slope = slope / _se_slope if _se_slope > 0 else 0
-
-    # p-values (two-tailed)
-    _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
-    _p_slope = 2 * (1 - stats.t.cdf(abs(_t_slope), _df)) if _df > 0 and _se_slope > 0 else 1
-
-    # Significance stars
-    def _sig_stars(p):
-        if p < 0.001:
-            return "***"
-        elif p < 0.01:
-            return "**"
-        elif p < 0.05:
-            return "*"
-        elif p < 0.1:
-            return "."
+        # Calculate standard errors from actual OLS
+        if transform == "Constant (no x)" or _ss_x == 0:
+            _se_intercept = _se / np.sqrt(_n)
+            _se_slope = 0
         else:
-            return ""
+            _se_intercept = _se * np.sqrt(1/_n + _x_mean**2 / _ss_x)
+            _se_slope = _se / np.sqrt(_ss_x)
 
-    # R² (theoretical, based on signal to noise ratio)
-    # R² ≈ var(signal) / (var(signal) + var(noise))
-    # For slope=1 and x with SD≈5, signal variance ≈ 25
-    _signal_var = slope**2 * 25 if transform != "Constant (no x)" else 0
-    _total_var = _signal_var + _sigma**2
-    _r_squared = _signal_var / _total_var if _total_var > 0 else 0
-    _adj_r_squared = 1 - (1 - _r_squared) * (_n_pts - 1) / _df if _df > 0 else 0
+        # t-values using OLS ESTIMATED coefficients
+        _t_intercept = _ols_intercept / _se_intercept if _se_intercept > 0 else 0
+        _t_slope = _ols_slope / _se_slope if _se_slope > 0 else 0
 
-    # F-statistic
-    if transform != "Constant (no x)" and _df > 0:
-        _f_stat = (_r_squared / 1) / ((1 - _r_squared) / _df) if _r_squared < 1 else float('inf')
-        _f_pval = 1 - stats.f.cdf(_f_stat, 1, _df)
-    else:
-        _f_stat = 0
-        _f_pval = 1
+        # p-values (two-tailed)
+        _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+        _p_slope = 2 * (1 - stats.t.cdf(abs(_t_slope), _df)) if _df > 0 and _se_slope > 0 else 1
 
-    _r_summary = f"""### R-Style Summary
+        # Significance stars
+        def _sig_stars(p):
+            if p < 0.001: return "***"
+            elif p < 0.01: return "**"
+            elif p < 0.05: return "*"
+            elif p < 0.1: return "."
+            else: return ""
+
+        # R² from actual OLS fit
+        _ss_res = np.sum((_y_data - _ols_y_pred)**2)
+        _ss_tot = np.sum((_y_data - np.mean(_y_data))**2)
+        _r_squared = 1 - _ss_res / _ss_tot if _ss_tot > 0 else 0
+        _r_squared = max(0, _r_squared)
+        _adj_r_squared = 1 - (1 - _r_squared) * (_n - 1) / _df if _df > 0 else 0
+
+        # F-statistic
+        if transform != "Constant (no x)" and _df > 0 and _r_squared < 1:
+            _f_stat = (_r_squared / 1) / ((1 - _r_squared) / _df)
+            _f_pval = 1 - stats.f.cdf(_f_stat, 1, _df)
+        else:
+            _f_stat = 0
+            _f_pval = 1
+
+        _r_summary = f"""### Regression Summary (OLS on simulated data)
 ```
 Coefficients:
               Estimate Std.Err t value  Pr(>|t|)
-(Intercept)   {intercept:8.3f} {_se_intercept:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}
-{x_label:13s} {slope:8.3f} {_se_slope:7.3f} {_t_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
+(Intercept)   {_ols_intercept:8.3f} {_se_intercept:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}
+{x_label:13s} {_ols_slope:8.3f} {_se_slope:7.3f} {_t_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
 ---
 Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
 
-Residual SE: {_sigma:.3f} on {_df} df
+Residual SE: {_se:.3f} on {_df} df
 R-squared: {_r_squared:.4f}, Adj R²: {_adj_r_squared:.4f}
 F-statistic: {_f_stat:.2f} on 1 and {_df} DF
 p-value: {_f_pval:.2e}
 ```
 """
 
-    # Create side-by-side layout
+    # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(coef_text)
     _right_col = mo.md(_r_summary)
 
-    _layout = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
-    _layout
+    _summary_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
+
+    # Stack the summary and plot vertically
+    mo.vstack([_summary_row, plot_output], gap=2)
     return
 
 
