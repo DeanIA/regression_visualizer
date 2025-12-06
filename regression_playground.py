@@ -1358,12 +1358,14 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
 
 
 @app.cell
-def _(coef_text, mo, np, plot_output, reg_stats, stats, transform, x_label):
+def _(coef_text, intercept, mo, np, plot_output, reg_stats, slope, stats, transform, x_label, y_label):
     # Only show regression summary for basic linear regression
     if reg_stats is None:
         _r_summary = """### Regression Summary
 *Summary statistics only available for Basic Linear Regression mode.*
 """
+        # Use the original coef_text (which uses TRUE/slider values) for non-basic modes
+        _coef_text_final = coef_text
     else:
         # Extract actual OLS regression results from the plotting cell
         _n = reg_stats["n"]
@@ -1431,8 +1433,92 @@ p-value: {_f_pval:.2e}
 ```
 """
 
+        # Generate coefficient interpretation using OLS ESTIMATED values (not slider TRUE values)
+        if transform == "Constant (no x)":
+            # Constant model - intercept only
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):** The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
+
+*(True DGP: β₀ = {intercept:.1f})*
+"""
+        elif transform == "Square Root (√x)":
+            _intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+            if _ols_slope > 0:
+                _direction = "increases"
+            elif _ols_slope < 0:
+                _direction = "decreases"
+            else:
+                _direction = "stays the same"
+            _slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+        elif transform == "Square (x²)":
+            _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+            if _ols_slope > 0:
+                _direction = "increases"
+            elif _ols_slope < 0:
+                _direction = "decreases"
+            else:
+                _direction = "stays the same"
+            _slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+        elif transform == "Log (ln x)":
+            _intercept_interp = f"When **ln({x_label})=0** (i.e., {x_label}=1), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+            if _ols_slope > 0:
+                _direction = "increases"
+            elif _ols_slope < 0:
+                _direction = "decreases"
+            else:
+                _direction = "stays the same"
+            _slope_interp = f"For every 1-unit increase in **ln({x_label})**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. A 1% increase in {x_label} corresponds to ~**{_ols_slope/100:.4f}** units change in {y_label}."
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+        else:
+            # No transformation - standard linear regression
+            _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+            if _ols_slope > 0:
+                _direction = "increase"
+            elif _ols_slope < 0:
+                _direction = "decrease"
+            else:
+                _direction = "no change"
+
+            if _ols_slope != 0:
+                _slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {_direction} by **{abs(_ols_slope):.2f}** units."
+            else:
+                _slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope ≈ 0)."
+
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):** {_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):** {_slope_interp}
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+
     # Create side-by-side layout for interpretation and summary
-    _left_col = mo.md(coef_text)
+    _left_col = mo.md(_coef_text_final)
     _right_col = mo.md(_r_summary)
 
     _summary_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
