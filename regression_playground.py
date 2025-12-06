@@ -94,16 +94,28 @@ def _(mo):
 
 @app.cell
 def _(mo):
+    # Checkboxes for toggling display
     show_variance = mo.ui.checkbox(value=False, label="Show Variance")
     show_sd = mo.ui.checkbox(value=False, label="Show Standard Deviation (SD)")
-    show_ci = mo.ui.checkbox(value=False, label="Show 95% Confidence Interval (CI)")
-    show_pi = mo.ui.checkbox(value=False, label="Show 95% Prediction Interval (PI)")
-    return show_ci, show_pi, show_sd, show_variance
+    show_ci = mo.ui.checkbox(value=False, label="Show Confidence Interval (CI)")
+    show_pi = mo.ui.checkbox(value=False, label="Show Prediction Interval (PI)")
+
+    # Sliders for adjustable values
+    sd_multiplier = mo.ui.slider(start=1, stop=3, step=0.5, value=1, label="SD Multiplier")
+    ci_level = mo.ui.slider(start=0.80, stop=0.99, step=0.01, value=0.95, label="CI Level")
+    pi_level = mo.ui.slider(start=0.80, stop=0.99, step=0.01, value=0.95, label="PI Level")
+
+    return ci_level, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_variance
 
 
 @app.cell
-def _(mo, show_ci, show_pi, show_sd, show_variance):
-    mo.hstack([show_variance, show_sd, show_ci, show_pi], justify="start", gap=4)
+def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_variance):
+    mo.vstack([
+        mo.hstack([show_variance, mo.md(f"*Shows ±2 SD band around the regression line to visualize spread of residuals (Variance = SD²)*")], align="center", gap=2),
+        mo.hstack([show_sd, sd_multiplier, mo.md(f"*Shows ±{sd_multiplier.value} SD band. SD measures average distance of points from the line.*")], align="center", gap=2),
+        mo.hstack([show_ci, ci_level, mo.md(f"*{int(ci_level.value*100)}% CI: Range where the TRUE regression line likely falls. Narrower with more data.*")], align="center", gap=2),
+        mo.hstack([show_pi, pi_level, mo.md(f"*{int(pi_level.value*100)}% PI: Range where a NEW individual observation would likely fall. Always wider than CI.*")], align="center", gap=2),
+    ], gap=1)
     return
 
 
@@ -147,7 +159,7 @@ def _(intercept, mo, slope, x_label, y_label):
 
 
 @app.cell
-def _(go, intercept, mo, n_points_slider, noise_slider, np, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, x_label, y_label):
+def _(ci_level, go, intercept, mo, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, x_label, y_label):
     from scipy import stats
 
     # Fixed axis ranges (positive x only)
@@ -182,16 +194,17 @@ def _(go, intercept, mo, n_points_slider, noise_slider, np, seed_slider, show_ci
     # Standard error for prediction (for PI)
     se_pred = se * np.sqrt(1 + 1/n + (x_line_smooth - x_mean)**2 / ss_x)
 
-    # t-value for 95% confidence
-    t_val = stats.t.ppf(0.975, n - 2)
+    # t-values for user-selected confidence levels
+    t_val_ci = stats.t.ppf((1 + ci_level.value) / 2, n - 2)
+    t_val_pi = stats.t.ppf((1 + pi_level.value) / 2, n - 2)
 
     # Create figure
     fig = go.Figure()
 
     # Add prediction interval (PI) - widest band, add first so it's behind
     if show_pi.value:
-        pi_upper = y_line_smooth + t_val * se_pred
-        pi_lower = y_line_smooth - t_val * se_pred
+        pi_upper = y_line_smooth + t_val_pi * se_pred
+        pi_lower = y_line_smooth - t_val_pi * se_pred
         fig.add_trace(
             go.Scatter(
                 x=np.concatenate([x_line_smooth, x_line_smooth[::-1]]),
@@ -199,15 +212,15 @@ def _(go, intercept, mo, n_points_slider, noise_slider, np, seed_slider, show_ci
                 fill="toself",
                 fillcolor="rgba(255, 165, 0, 0.2)",
                 line=dict(color="rgba(0,0,0,0)"),
-                name="95% Prediction Interval",
+                name=f"{int(pi_level.value*100)}% Prediction Interval",
                 hoverinfo="skip",
             )
         )
 
     # Add confidence interval (CI)
     if show_ci.value:
-        ci_upper = y_line_smooth + t_val * se_fit
-        ci_lower = y_line_smooth - t_val * se_fit
+        ci_upper = y_line_smooth + t_val_ci * se_fit
+        ci_lower = y_line_smooth - t_val_ci * se_fit
         fig.add_trace(
             go.Scatter(
                 x=np.concatenate([x_line_smooth, x_line_smooth[::-1]]),
@@ -215,15 +228,16 @@ def _(go, intercept, mo, n_points_slider, noise_slider, np, seed_slider, show_ci
                 fill="toself",
                 fillcolor="rgba(99, 110, 250, 0.3)",
                 line=dict(color="rgba(0,0,0,0)"),
-                name="95% Confidence Interval",
+                name=f"{int(ci_level.value*100)}% Confidence Interval",
                 hoverinfo="skip",
             )
         )
 
-    # Add standard deviation band (1 SD around regression line)
+    # Add standard deviation band (user-selected multiplier)
     if show_sd.value:
-        sd_upper = y_line_smooth + se
-        sd_lower = y_line_smooth - se
+        sd_mult = sd_multiplier.value
+        sd_upper = y_line_smooth + sd_mult * se
+        sd_lower = y_line_smooth - sd_mult * se
         fig.add_trace(
             go.Scatter(
                 x=np.concatenate([x_line_smooth, x_line_smooth[::-1]]),
@@ -231,7 +245,7 @@ def _(go, intercept, mo, n_points_slider, noise_slider, np, seed_slider, show_ci
                 fill="toself",
                 fillcolor="rgba(0, 200, 0, 0.2)",
                 line=dict(color="rgba(0,0,0,0)"),
-                name=f"±1 SD (σ = {se:.2f})",
+                name=f"±{sd_mult} SD (σ = {se:.2f})",
                 hoverinfo="skip",
             )
         )
