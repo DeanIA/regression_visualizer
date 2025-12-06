@@ -739,50 +739,65 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             z_held = z_hold
             w_held = w_hold if has_cont3 else 0
 
-            # Plot points with color based on z-value (continuous colorscale)
-            fig.add_trace(go.Scatter(
-                x=x_data_raw,
-                y=y_data,
-                mode="markers",
-                name="Data Points",
-                marker=dict(
-                    color=z_data,
-                    colorscale="Viridis",
-                    size=10,
-                    opacity=0.7,
-                    colorbar=dict(title=z_label),
-                    cmin=z_mu - 3 * z_sigma,
-                    cmax=z_mu + 3 * z_sigma,
-                ),
-                text=[f"{z_label}={z:.1f}" for z in z_data],
-                hovertemplate=f"{x_label}: %{{x:.1f}}<br>{y_label}: %{{y:.1f}}<br>%{{text}}<extra></extra>",
-            ))
+            # Discretize z into 3 categories: Low (< mean-1SD), Medium, High (> mean+1SD)
+            z_low_threshold = z_mu - z_sigma
+            z_high_threshold = z_mu + z_sigma
+            z_categories = np.where(z_data < z_low_threshold, 0,
+                                    np.where(z_data > z_high_threshold, 2, 1))
 
-            # Plot regression line at held z (and w if enabled) value
-            y_line = (intercept
-                      + slope * x_line_transformed
-                      + b_cont2 * z_held
-                      + (b_interaction_cont * x_line_transformed * z_held if has_interaction_cont else 0)
-                      + (b_cont3 * w_held if has_cont3 else 0))
+            # Define colors and labels for z categories
+            z_colors = ["#636EFA", "#00CC96", "#EF553B"]  # Blue, Green, Red
+            z_cat_labels = [
+                f"Low {z_label} (<{z_low_threshold:.0f})",
+                f"Mid {z_label} ({z_low_threshold:.0f}-{z_high_threshold:.0f})",
+                f"High {z_label} (>{z_high_threshold:.0f})"
+            ]
 
-            line_name = f"Regression Line ({z_label}={z_held:.1f}"
-            if has_cont3:
-                line_name += f", {w_label}={w_held:.1f}"
-            line_name += ")"
+            # Plot points by z category with discrete colors
+            for cat_idx in range(3):
+                mask = z_categories == cat_idx
+                if np.sum(mask) > 0:
+                    fig.add_trace(go.Scatter(
+                        x=x_data_raw[mask],
+                        y=y_data[mask],
+                        mode="markers",
+                        name=z_cat_labels[cat_idx],
+                        marker=dict(
+                            color=z_colors[cat_idx],
+                            size=10,
+                            opacity=0.7,
+                        ),
+                        text=[f"{z_label}={z:.1f}" for z in z_data[mask]],
+                        hovertemplate=f"{x_label}: %{{x:.1f}}<br>{y_label}: %{{y:.1f}}<br>%{{text}}<extra>{z_cat_labels[cat_idx]}</extra>",
+                    ))
 
-            fig.add_trace(go.Scatter(
-                x=x_line,
-                y=y_line,
-                mode="lines",
-                name=line_name,
-                line=dict(color="#EF553B", width=3),
-            ))
+            # Plot regression lines for each z category
+            # Use representative z values: low = mean-1.5SD, mid = mean, high = mean+1.5SD
+            z_representative = [z_mu - 1.5 * z_sigma, z_mu, z_mu + 1.5 * z_sigma]
+            w_held = w_hold if has_cont3 else 0
+
+            for cat_idx in range(3):
+                z_val = z_representative[cat_idx]
+                y_line = (intercept
+                          + slope * x_line_transformed
+                          + b_cont2 * z_val
+                          + (b_interaction_cont * x_line_transformed * z_val if has_interaction_cont else 0)
+                          + (b_cont3 * w_held if has_cont3 else 0))
+
+                line_name = f"{z_cat_labels[cat_idx]} line"
+
+                fig.add_trace(go.Scatter(
+                    x=x_line,
+                    y=y_line,
+                    mode="lines",
+                    name=line_name,
+                    line=dict(color=z_colors[cat_idx], width=3),
+                ))
 
             # Layout for continuous mode
-            x_axis_title = f"{x_label} ({z_label} held at {z_held:.1f}"
+            x_axis_title = x_label
             if has_cont3:
-                x_axis_title += f", {w_label} held at {w_held:.1f}"
-            x_axis_title += ")"
+                x_axis_title += f" ({w_label} held at {w_held:.1f})"
 
         # Calculate dynamic y-axis range based on data (always start at 0)
         y_data_max = np.max(y_data)
