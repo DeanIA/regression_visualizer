@@ -35,14 +35,20 @@ def _(mo):
     n_bins_slider = mo.ui.slider(
         start=2, stop=10, step=1, value=3, label="Number of Bins"
     )
-    return model_type, n_bins_slider
+    x_transform = mo.ui.dropdown(
+        options=["None (x)", "Square Root (√x)", "Square (x²)", "Log (ln x)", "Constant (no x)"],
+        value="None (x)",
+        label="X Transformation:"
+    )
+    return model_type, n_bins_slider, x_transform
 
 
 @app.cell
-def _(mo, model_type, n_bins_slider):
+def _(mo, model_type, n_bins_slider, x_transform):
     is_binned = model_type.value == "Binned (Categorized)"
-    mo.hstack([model_type, n_bins_slider] if is_binned else [model_type], justify="start", gap=4)
-    return (is_binned,)
+    is_continuous = model_type.value == "Continuous (Regression)"
+    mo.hstack([model_type, n_bins_slider] if is_binned else ([model_type, x_transform] if is_continuous else [model_type]), justify="start", gap=4)
+    return is_binned, is_continuous
 
 
 @app.cell
@@ -163,25 +169,40 @@ def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_var
 
 
 @app.cell
-def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x_name, y_name):
+def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x_name, x_transform, y_name):
     x_label = x_name.value or ("Group" if is_binary else "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
     intercept = intercept_slider.value
     g0_label = group0_name.value or "Group 0"
     g1_label = group1_name.value or "Group 1"
+    transform = x_transform.value
+
+    # Get transformed x label for equation
+    if transform == "Square Root (√x)":
+        x_term = f"√{x_label}"
+    elif transform == "Square (x²)":
+        x_term = f"{x_label}²"
+    elif transform == "Log (ln x)":
+        x_term = f"ln({x_label})"
+    elif transform == "Constant (no x)":
+        x_term = None
+    else:
+        x_term = x_label
 
     if is_binary:
         equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}**  (where {x_label} = 0 for {g0_label}, 1 for {g1_label})"
+    elif x_term is None:
+        equation = f"**{y_label} = {intercept:.1f}**  (constant model, no predictor)"
     else:
-        equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}**"
+        equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}**"
 
     mo.md(f"### Model Equation: {equation}")
-    return g0_label, g1_label, intercept, slope, x_label, y_label
+    return g0_label, g1_label, intercept, slope, transform, x_label, x_term, y_label
 
 
 @app.cell
-def _(g0_label, g1_label, intercept, is_binary, mo, slope, x_label, y_label):
+def _(g0_label, g1_label, intercept, is_binary, mo, slope, transform, x_label, x_term, y_label):
     if is_binary:
         # Binary/dummy variable interpretation
         intercept_interp = f"The mean of **{y_label}** for **{g0_label}** (when {x_label}=0) is **{intercept:.1f}**."
@@ -198,39 +219,65 @@ def _(g0_label, g1_label, intercept, is_binary, mo, slope, x_label, y_label):
         else:
             slope_interp = f"**{g1_label}** and **{g0_label}** have the same mean **{y_label}** (no group difference)."
 
-        mo.md(f"""### Coefficient Interpretation (Means Comparison)
+        coef_text = f"""### Coefficient Interpretation (Means Comparison)
 
 **Intercept (β₀ = {intercept:.1f}):** {intercept_interp}
 
 **Group Difference (β₁ = {slope:.1f}):** {slope_interp}
-""")
+"""
+    elif transform == "Constant (no x)":
+        # Constant model - intercept only
+        coef_text = f"""### Coefficient Interpretation (Constant Model)
+
+**Intercept (β₀ = {intercept:.1f}):** The predicted value of **{y_label}** is always **{intercept:.1f}**, regardless of any predictor. This is simply the mean of {y_label}.
+"""
     else:
-        # Continuous variable interpretation
-        intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{intercept:.1f}**."
-
-        if slope > 0:
-            direction = "increase"
-        elif slope < 0:
-            direction = "decrease"
+        # Continuous variable interpretation with transformations
+        if transform == "Square Root (√x)":
+            intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope != 0:
+                slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** changes by **{slope:.1f}** units. (Note: the effect on {y_label} per unit of raw {x_label} decreases as {x_label} increases.)"
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+        elif transform == "Square (x²)":
+            intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope != 0:
+                slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** changes by **{slope:.1f}** units. (Note: the effect on {y_label} per unit of raw {x_label} increases as {x_label} increases.)"
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+        elif transform == "Log (ln x)":
+            intercept_interp = f"When **ln({x_label})=0** (i.e., {x_label}=1), the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope != 0:
+                slope_interp = f"For every 1-unit increase in **ln({x_label})** (i.e., {x_label} multiplied by e≈2.72), **{y_label}** changes by **{slope:.1f}** units. Alternatively: a 1% increase in {x_label} is associated with a **{slope/100:.3f}** unit change in {y_label}."
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
         else:
-            direction = "no change"
+            # No transformation
+            intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope > 0:
+                direction = "increase"
+            elif slope < 0:
+                direction = "decrease"
+            else:
+                direction = "no change"
 
-        if slope != 0:
-            slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {direction} by **{abs(slope):.1f}** units."
-        else:
-            slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+            if slope != 0:
+                slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {direction} by **{abs(slope):.1f}** units."
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
 
-        mo.md(f"""### Coefficient Interpretation
+        coef_text = f"""### Coefficient Interpretation
 
 **Intercept (β₀ = {intercept:.1f}):** {intercept_interp}
 
 **Slope (β₁ = {slope:.1f}):** {slope_interp}
-""")
+"""
+    mo.md(coef_text)
     return
 
 
 @app.cell
-def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, stats, x_label, y_label):
+def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, stats, transform, x_label, x_term, y_label):
     # Fixed axis ranges
     Y_MIN, Y_MAX = -15, 15
 
@@ -544,34 +591,74 @@ def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_b
             margin=dict(t=50, b=50, l=50, r=50),
         )
     else:
-        # Continuous mode (original code)
-        X_MIN, X_MAX = 0, 10
-        x_data = np.random.uniform(X_MIN, X_MAX, n)
-        y_data = intercept + slope * x_data + np.random.normal(0, noise_slider.value, n)
+        # Continuous mode with transformations
+        # For log transform, x must be positive
+        if transform == "Log (ln x)":
+            X_MIN, X_MAX = 0.1, 10
+        else:
+            X_MIN, X_MAX = 0, 10
 
-        # Calculate statistics for intervals
-        x_mean = np.mean(x_data)
+        x_data_raw = np.random.uniform(X_MIN, X_MAX, n)
+
+        # Apply transformation to x for the model
+        if transform == "Square Root (√x)":
+            x_data_transformed = np.sqrt(x_data_raw)
+        elif transform == "Square (x²)":
+            x_data_transformed = x_data_raw ** 2
+        elif transform == "Log (ln x)":
+            x_data_transformed = np.log(x_data_raw)
+        elif transform == "Constant (no x)":
+            x_data_transformed = np.zeros_like(x_data_raw)
+        else:
+            x_data_transformed = x_data_raw
+
+        # Generate y using transformed x
+        y_data = intercept + slope * x_data_transformed + np.random.normal(0, noise_slider.value, n)
+
+        # For plotting the regression curve
         x_line_smooth = np.linspace(X_MIN, X_MAX, 100)
-        y_line_smooth = intercept + slope * x_line_smooth
+
+        if transform == "Square Root (√x)":
+            x_line_transformed = np.sqrt(x_line_smooth)
+        elif transform == "Square (x²)":
+            x_line_transformed = x_line_smooth ** 2
+        elif transform == "Log (ln x)":
+            x_line_transformed = np.log(x_line_smooth)
+        elif transform == "Constant (no x)":
+            x_line_transformed = np.zeros_like(x_line_smooth)
+        else:
+            x_line_transformed = x_line_smooth
+
+        y_line_smooth = intercept + slope * x_line_transformed
+
+        # Calculate statistics for intervals (using transformed x)
+        x_mean = np.mean(x_data_transformed)
 
         # Residuals and variance estimation
-        y_pred = intercept + slope * x_data
+        y_pred = intercept + slope * x_data_transformed
         residuals = y_data - y_pred
-        mse = np.sum(residuals**2) / (n - 2)
+
+        # Degrees of freedom depends on whether we have a slope
+        df = n - 2 if transform != "Constant (no x)" else n - 1
+        mse = np.sum(residuals**2) / df
         se = np.sqrt(mse)
 
-        # Sum of squares for x
-        ss_x = np.sum((x_data - x_mean)**2)
+        # Sum of squares for transformed x
+        ss_x = np.sum((x_data_transformed - x_mean)**2)
 
-        # Standard error of the fitted values (for CI)
-        se_fit = se * np.sqrt(1/n + (x_line_smooth - x_mean)**2 / ss_x)
-
-        # Standard error for prediction (for PI)
-        se_pred = se * np.sqrt(1 + 1/n + (x_line_smooth - x_mean)**2 / ss_x)
+        # Handle constant model (no x variation)
+        if transform == "Constant (no x)" or ss_x == 0:
+            se_fit = se / np.sqrt(n) * np.ones_like(x_line_smooth)
+            se_pred = se * np.sqrt(1 + 1/n) * np.ones_like(x_line_smooth)
+        else:
+            # Standard error of the fitted values (for CI)
+            se_fit = se * np.sqrt(1/n + (x_line_transformed - x_mean)**2 / ss_x)
+            # Standard error for prediction (for PI)
+            se_pred = se * np.sqrt(1 + 1/n + (x_line_transformed - x_mean)**2 / ss_x)
 
         # t-values for user-selected confidence levels
-        t_val_ci = stats.t.ppf((1 + ci_level.value) / 2, n - 2)
-        t_val_pi = stats.t.ppf((1 + pi_level.value) / 2, n - 2)
+        t_val_ci = stats.t.ppf((1 + ci_level.value) / 2, df)
+        t_val_pi = stats.t.ppf((1 + pi_level.value) / 2, df)
 
         # Add prediction interval (PI)
         if show_pi.value:
@@ -638,10 +725,10 @@ def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_b
                 )
             )
 
-        # Add scatter points
+        # Add scatter points (plot against raw x)
         fig.add_trace(
             go.Scatter(
-                x=x_data,
+                x=x_data_raw,
                 y=y_data,
                 mode="markers",
                 name="Data Points",
@@ -649,26 +736,29 @@ def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_b
             )
         )
 
-        # Add regression line
-        x_line = np.array([X_MIN, X_MAX])
-        y_line = intercept + slope * x_line
-
+        # Add regression line/curve
         fig.add_trace(
             go.Scatter(
-                x=x_line,
-                y=y_line,
+                x=x_line_smooth,
+                y=y_line_smooth,
                 mode="lines",
-                name="Regression Line",
+                name="Regression Line" if transform == "None (x)" else "Regression Curve",
                 line=dict(color="#EF553B", width=3),
             )
         )
 
         # Layout for continuous
+        # x-axis title based on transformation
+        if x_term is None:
+            x_axis_title = x_label + " (not used in model)"
+        else:
+            x_axis_title = x_label
+
         fig.update_layout(
             template="plotly_white",
             height=600,
             xaxis=dict(
-                title=x_label,
+                title=x_axis_title,
                 range=[X_MIN, X_MAX],
                 dtick=2,
                 zeroline=True,
