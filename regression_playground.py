@@ -839,6 +839,54 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             margin=dict(t=50, b=50, l=50, r=50),
         )
 
+        # Compute OLS for multiple regression
+        # Build design matrix based on model structure
+        if has_grouping:
+            # Grouping mode: y = β₀ + β₁x + β₂Group + β₃(x×Group) + β₄w
+            _predictors = [x_data_transformed, group_data]
+            _pred_names = [x_label, "Group"]
+            if has_interaction:
+                _predictors.append(x_data_transformed * group_data)
+                _pred_names.append(f"{x_label}×Group")
+            if has_cont3:
+                _predictors.append(w_data)
+                _pred_names.append(w_label)
+        else:
+            # Continuous mode: y = β₀ + β₁x + β₂z + β₃(x×z) + β₄w
+            _predictors = [x_data_transformed, z_data]
+            _pred_names = [x_label, z_label]
+            if has_interaction_cont:
+                _predictors.append(x_data_transformed * z_data)
+                _pred_names.append(f"{x_label}×{z_label}")
+            if has_cont3:
+                _predictors.append(w_data)
+                _pred_names.append(w_label)
+
+        # Build design matrix: [1, x1, x2, ...]
+        _X_design = np.column_stack([np.ones(n)] + _predictors)
+        _n_predictors = len(_predictors)
+
+        # OLS using normal equations: (X'X)^(-1) X'y
+        _XtX = _X_design.T @ _X_design
+        _Xty = _X_design.T @ y_data
+        _multi_betas = np.linalg.solve(_XtX, _Xty)
+
+        _multi_intercept = _multi_betas[0]
+        _multi_coefs = _multi_betas[1:]
+
+        # OLS predictions and residuals
+        _multi_y_pred = _X_design @ _multi_betas
+        _multi_residuals = y_data - _multi_y_pred
+
+        # Calculate statistics
+        _multi_df = n - (_n_predictors + 1)  # n - (k + 1)
+        _multi_mse = np.sum(_multi_residuals**2) / _multi_df if _multi_df > 0 else 0
+        _multi_se = np.sqrt(_multi_mse)
+
+        # Standard errors for coefficients: sqrt(diag((X'X)^(-1) * MSE))
+        _XtX_inv = np.linalg.inv(_XtX)
+        _multi_se_betas = np.sqrt(np.diag(_XtX_inv) * _multi_mse)
+
     elif is_binned:
         # Binned mode: Generate continuous data then bin it
         X_MIN, X_MAX = 0, 10
@@ -1395,7 +1443,7 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
         plot_output = mo.ui.plotly(fig, config={"scrollZoom": False, "displayModeBar": False})
 
     # Return actual regression statistics for R summary
-    # Available for basic linear regression, binary, and binned modes
+    # Available for all modes now
     if not is_multiple:
         reg_stats = {
             "n": n,
@@ -1410,6 +1458,7 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             "ols_residuals": _ols_residuals,
             "is_binary": is_binary,
             "is_binned": is_binned,
+            "is_multiple": False,
         }
         if is_binary:
             reg_stats["x_data"] = x_data
@@ -1426,7 +1475,25 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             reg_stats["x_data"] = x_data_transformed
             reg_stats["ols_slope"] = _ols_slope
     else:
-        reg_stats = None
+        # Multiple regression mode
+        reg_stats = {
+            "n": n,
+            "df": _multi_df,
+            "mse": _multi_mse,
+            "se": _multi_se,
+            "y_data": y_data,
+            "ols_y_pred": _multi_y_pred,
+            "ols_intercept": _multi_intercept,
+            "ols_residuals": _multi_residuals,
+            "is_binary": False,
+            "is_binned": False,
+            "is_multiple": True,
+            "pred_names": _pred_names,
+            "coefs": _multi_coefs,
+            "se_betas": _multi_se_betas,
+            "n_predictors": _n_predictors,
+            "has_grouping": has_grouping,
+        }
     return plot_output, reg_stats
 
 
@@ -1445,12 +1512,11 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         _n = reg_stats["n"]
         _df = reg_stats["df"]
         _se = reg_stats["se"]
-        _ss_x = reg_stats["ss_x"]
-        _x_mean = reg_stats["x_mean"]
         _y_data = reg_stats["y_data"]
         _ols_y_pred = reg_stats["ols_y_pred"]
         _ols_intercept = reg_stats["ols_intercept"]
         _is_binned = reg_stats.get("is_binned", False)
+        _is_multiple = reg_stats.get("is_multiple", False)
 
         # Significance stars helper
         def _sig_stars(p):
@@ -1467,7 +1533,68 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         _r_squared = max(0, _r_squared)
         _adj_r_squared = 1 - (1 - _r_squared) * (_n - 1) / _df if _df > 0 else 0
 
-        if _is_binned:
+        if _is_multiple:
+            # Multiple regression mode - R-style output
+            _pred_names = reg_stats["pred_names"]
+            _coefs = reg_stats["coefs"]
+            _se_betas = reg_stats["se_betas"]
+            _n_predictors = reg_stats["n_predictors"]
+
+            # t-values and p-values for intercept
+            _t_intercept = _ols_intercept / _se_betas[0] if _se_betas[0] > 0 else 0
+            _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+
+            # t-values and p-values for each predictor
+            _t_preds = []
+            _p_preds = []
+            for _i in range(_n_predictors):
+                _t_val = _coefs[_i] / _se_betas[_i + 1] if _se_betas[_i + 1] > 0 else 0
+                _p_val = 2 * (1 - stats.t.cdf(abs(_t_val), _df)) if _df > 0 else 1
+                _t_preds.append(_t_val)
+                _p_preds.append(_p_val)
+
+            # F-statistic for multiple regression (k predictors)
+            if _df > 0 and _r_squared < 1:
+                _f_stat = (_r_squared / _n_predictors) / ((1 - _r_squared) / _df)
+                _f_pval = 1 - stats.f.cdf(_f_stat, _n_predictors, _df)
+            else:
+                _f_stat = 0
+                _f_pval = 1
+
+            # Build R-style coefficient table
+            _coef_lines = [f"(Intercept)   {_ols_intercept:8.3f} {_se_betas[0]:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}"]
+            for _i in range(_n_predictors):
+                _label = _pred_names[_i]
+                _coef_lines.append(f"{_label:13s} {_coefs[_i]:8.3f} {_se_betas[_i + 1]:7.3f} {_t_preds[_i]:7.2f}  {_p_preds[_i]:.2e} {_sig_stars(_p_preds[_i])}")
+
+            _coef_table = "\n".join(_coef_lines)
+            _r_summary = f"""### Regression Summary (OLS on simulated data)
+```
+Coefficients:
+              Estimate Std.Err t value  Pr(>|t|)
+{_coef_table}
+---
+Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
+
+Residual SE: {_se:.3f} on {_df} df
+R-squared: {_r_squared:.4f}, Adj R²: {_adj_r_squared:.4f}
+F-statistic: {_f_stat:.2f} on {_n_predictors} and {_df} DF
+p-value: {_f_pval:.2e}
+```
+"""
+            # Use the original coef_text for multiple regression interpretation
+            _coef_text_final = coef_text
+
+            # Model fit section
+            _model_fit = f"""
+**Model Fit:**
+- **Residual SE (σ̂) = {_se:.3f}** — the standard deviation of residuals
+- **R² = {_r_squared:.3f}** — {_r_squared*100:.1f}% of variance in {y_label} is explained
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+
+        elif _is_binned:
             # Binned mode with categorical dummies - R-style output
             _bin_labels = reg_stats["bin_labels"]
             _bin_coefs = reg_stats["bin_coefs"]
@@ -1523,8 +1650,10 @@ p-value: {_f_pval:.2e}
             _se_intercept = _se_betas[0]
             _se_slope = 0
         else:
-            # Non-binned modes: extract slope
+            # Non-binned, non-multiple modes: extract slope and stats
             _ols_slope = reg_stats["ols_slope"]
+            _ss_x = reg_stats["ss_x"]
+            _x_mean = reg_stats["x_mean"]
 
             # Calculate standard errors from actual OLS
             if transform == "Constant (no x)" or _ss_x == 0:
@@ -1569,8 +1698,10 @@ p-value: {_f_pval:.2e}
 """
 
         # Generate coefficient interpretation using OLS ESTIMATED values (not slider TRUE values)
-        # Model fit section with descriptions (same for all transforms)
-        _model_fit = f"""
+        # Only for non-multiple regression modes (multiple regression has its own interpretation above)
+        if not _is_multiple:
+            # Model fit section with descriptions (same for all transforms)
+            _model_fit = f"""
 **Model Fit:**
 - **Residual SE (σ̂) = {_se:.3f}** — the standard deviation of residuals; on average, predictions are off by about this much
 - **R² = {_r_squared:.3f}** — {_r_squared*100:.1f}% of the variance in {y_label} is explained by the model
@@ -1578,25 +1709,25 @@ p-value: {_f_pval:.2e}
 *(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
 """
 
-        if transform == "Constant (no x)":
-            # Constant model - intercept only
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+            if transform == "Constant (no x)":
+                # Constant model - intercept only
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
-        elif transform == "Square Root (√x)":
-            _intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
-            if _ols_slope > 0:
-                _direction = "increases"
-            elif _ols_slope < 0:
-                _direction = "decreases"
-            else:
-                _direction = "stays the same"
-            _slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+            elif transform == "Square Root (√x)":
+                _intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 {_intercept_interp}
@@ -1606,16 +1737,16 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
-        elif transform == "Square (x²)":
-            _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
-            if _ols_slope > 0:
-                _direction = "increases"
-            elif _ols_slope < 0:
-                _direction = "decreases"
-            else:
-                _direction = "stays the same"
-            _slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+            elif transform == "Square (x²)":
+                _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 {_intercept_interp}
@@ -1625,16 +1756,16 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
-        elif transform == "Log (ln x)":
-            _intercept_interp = f"When **ln({x_label})=0** (i.e., {x_label}=1), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
-            if _ols_slope > 0:
-                _direction = "increases"
-            elif _ols_slope < 0:
-                _direction = "decreases"
-            else:
-                _direction = "stays the same"
-            _slope_interp = f"For every 1-unit increase in **ln({x_label})**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. A 1% increase in {x_label} corresponds to ~**{_ols_slope/100:.4f}** units change in {y_label}."
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+            elif transform == "Log (ln x)":
+                _intercept_interp = f"When **ln({x_label})=0** (i.e., {x_label}=1), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"For every 1-unit increase in **ln({x_label})**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. A 1% increase in {x_label} corresponds to ~**{_ols_slope/100:.4f}** units change in {y_label}."
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 {_intercept_interp}
@@ -1644,25 +1775,25 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
-        elif reg_stats.get("is_binary", False):
-            # Binary mode - means comparison interpretation
-            _g0_label = reg_stats["g0_label"]
-            _g1_label = reg_stats["g1_label"]
-            _intercept_interp = f"The estimated mean of **{y_label}** for **{_g0_label}** is **{_ols_intercept:.2f}**."
+            elif reg_stats.get("is_binary", False):
+                # Binary mode - means comparison interpretation
+                _g0_label = reg_stats["g0_label"]
+                _g1_label = reg_stats["g1_label"]
+                _intercept_interp = f"The estimated mean of **{y_label}** for **{_g0_label}** is **{_ols_intercept:.2f}**."
 
-            if _ols_slope > 0:
-                _direction = "higher"
-            elif _ols_slope < 0:
-                _direction = "lower"
-            else:
-                _direction = "the same as"
+                if _ols_slope > 0:
+                    _direction = "higher"
+                elif _ols_slope < 0:
+                    _direction = "lower"
+                else:
+                    _direction = "the same as"
 
-            if _ols_slope != 0:
-                _slope_interp = f"**{_g1_label}** has a mean **{y_label}** that is **{abs(_ols_slope):.2f}** units {_direction} than **{_g0_label}**. (Estimated mean for {_g1_label} = {_ols_intercept + _ols_slope:.2f})"
-            else:
-                _slope_interp = f"**{_g1_label}** and **{_g0_label}** have approximately the same mean **{y_label}** (no group difference)."
+                if _ols_slope != 0:
+                    _slope_interp = f"**{_g1_label}** has a mean **{y_label}** that is **{abs(_ols_slope):.2f}** units {_direction} than **{_g0_label}**. (Estimated mean for {_g1_label} = {_ols_intercept + _ols_slope:.2f})"
+                else:
+                    _slope_interp = f"**{_g1_label}** and **{_g0_label}** have approximately the same mean **{y_label}** (no group difference)."
 
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 {_intercept_interp}
@@ -1672,39 +1803,39 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
 {_model_fit}"""
-        elif reg_stats.get("is_binned", False):
-            # Binned mode - categorical dummy interpretation
-            _bin_labels = reg_stats["bin_labels"]
-            _bin_coefs = reg_stats["bin_coefs"]
-            _se_betas = reg_stats["se_betas"]
-            _n_bins = reg_stats["n_bins"]
+            elif reg_stats.get("is_binned", False):
+                # Binned mode - categorical dummy interpretation
+                _bin_labels = reg_stats["bin_labels"]
+                _bin_coefs = reg_stats["bin_coefs"]
+                _se_betas = reg_stats["se_betas"]
+                _n_bins = reg_stats["n_bins"]
 
-            _intercept_interp = f"The estimated mean of **{y_label}** for **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
+                _intercept_interp = f"The estimated mean of **{y_label}** for **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
 
-            # Build interpretation for each bin coefficient
-            _bin_interps = []
-            for _i in range(_n_bins - 1):
-                _coef = _bin_coefs[_i]
-                _se_bin = _se_betas[_i + 1]
-                _t_bin = _coef / _se_bin if _se_bin > 0 else 0
-                _mean_bin = _ols_intercept + _coef
+                # Build interpretation for each bin coefficient
+                _bin_interps = []
+                for _i in range(_n_bins - 1):
+                    _coef = _bin_coefs[_i]
+                    _se_bin = _se_betas[_i + 1]
+                    _t_bin = _coef / _se_bin if _se_bin > 0 else 0
+                    _mean_bin = _ols_intercept + _coef
 
-                if _coef > 0:
-                    _direction = "higher"
-                elif _coef < 0:
-                    _direction = "lower"
-                else:
-                    _direction = "the same as"
+                    if _coef > 0:
+                        _direction = "higher"
+                    elif _coef < 0:
+                        _direction = "lower"
+                    else:
+                        _direction = "the same as"
 
-                _bin_interps.append(
-                    f"**{_bin_labels[_i + 1]}** (β = {_coef:.2f}, SE = {_se_bin:.2f}, t = {_t_bin:.2f}): "
-                    f"Mean **{y_label}** is **{abs(_coef):.2f}** units {_direction} than {_bin_labels[0]}. "
-                    f"(Estimated mean = {_mean_bin:.2f})"
-                )
+                    _bin_interps.append(
+                        f"**{_bin_labels[_i + 1]}** (β = {_coef:.2f}, SE = {_se_bin:.2f}, t = {_t_bin:.2f}): "
+                        f"Mean **{y_label}** is **{abs(_coef):.2f}** units {_direction} than {_bin_labels[0]}. "
+                        f"(Estimated mean = {_mean_bin:.2f})"
+                    )
 
-            _bin_interp_text = "\n\n".join(_bin_interps)
+                _bin_interp_text = "\n\n".join(_bin_interps)
 
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 *Categorical model: {_bin_labels[0]} is the reference group.*
 
@@ -1718,22 +1849,22 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
 {_model_fit}"""
-        else:
-            # No transformation - standard linear regression
-            _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
-            if _ols_slope > 0:
-                _direction = "increase"
-            elif _ols_slope < 0:
-                _direction = "decrease"
             else:
-                _direction = "no change"
+                # No transformation - standard linear regression
+                _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increase"
+                elif _ols_slope < 0:
+                    _direction = "decrease"
+                else:
+                    _direction = "no change"
 
-            if _ols_slope != 0:
-                _slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {_direction} by **{abs(_ols_slope):.2f}** units."
-            else:
-                _slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope ≈ 0)."
+                if _ols_slope != 0:
+                    _slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {_direction} by **{abs(_ols_slope):.2f}** units."
+                else:
+                    _slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope ≈ 0)."
 
-            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
 **Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
 {_intercept_interp}
@@ -1744,50 +1875,50 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
 
-        # Create Residuals vs Fitted plot using OLS values
-        _ols_residuals = reg_stats["ols_residuals"]
-        _resid_fig = go.Figure()
-        _resid_fig.add_trace(
-            go.Scatter(
-                x=_ols_y_pred,
-                y=_ols_residuals,
-                mode="markers",
-                marker=dict(color="#636EFA", size=8, opacity=0.7),
-                name="Residuals",
-            )
+    # Create Residuals vs Fitted plot using OLS values (for all modes with reg_stats)
+    _ols_residuals = reg_stats["ols_residuals"]
+    _resid_fig = go.Figure()
+    _resid_fig.add_trace(
+        go.Scatter(
+            x=_ols_y_pred,
+            y=_ols_residuals,
+            mode="markers",
+            marker=dict(color="#636EFA", size=8, opacity=0.7),
+            name="Residuals",
         )
-        # Add horizontal line at y=0
-        _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
-        # Get x-axis range from fitted values
-        _resid_x_min = np.min(_ols_y_pred) - 2
-        _resid_x_max = np.max(_ols_y_pred) + 2
-        _resid_fig.update_layout(
-            template="plotly_white",
-            width=600,
-            height=600,
-            dragmode=False,
-            title="Residuals vs Fitted",
-            xaxis=dict(
-                title="Fitted Values (ŷ)",
-                range=[_resid_x_min, _resid_x_max],
-                zeroline=True,
-                zerolinewidth=1,
-                zerolinecolor="gray",
-                gridcolor="lightgray",
-                fixedrange=True,
-            ),
-            yaxis=dict(
-                title="Residuals (y - ŷ)",
-                range=[-10, 10],
-                zeroline=True,
-                zerolinewidth=1,
-                zerolinecolor="gray",
-                gridcolor="lightgray",
-                fixedrange=True,
-            ),
-            margin=dict(t=50, b=50, l=50, r=50),
-        )
-        _resid_plot = mo.ui.plotly(_resid_fig, config={"scrollZoom": False, "displayModeBar": False})
+    )
+    # Add horizontal line at y=0
+    _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
+    # Get x-axis range from fitted values
+    _resid_x_min = np.min(_ols_y_pred) - 2
+    _resid_x_max = np.max(_ols_y_pred) + 2
+    _resid_fig.update_layout(
+        template="plotly_white",
+        width=600,
+        height=600,
+        dragmode=False,
+        title="Residuals vs Fitted",
+        xaxis=dict(
+            title="Fitted Values (ŷ)",
+            range=[_resid_x_min, _resid_x_max],
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor="gray",
+            gridcolor="lightgray",
+            fixedrange=True,
+        ),
+        yaxis=dict(
+            title="Residuals (y - ŷ)",
+            range=[-10, 10],
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor="gray",
+            gridcolor="lightgray",
+            fixedrange=True,
+        ),
+        margin=dict(t=50, b=50, l=50, r=50),
+    )
+    _resid_plot = mo.ui.plotly(_resid_fig, config={"scrollZoom": False, "displayModeBar": False})
 
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
