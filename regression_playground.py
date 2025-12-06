@@ -67,11 +67,11 @@ def _(mo):
 
     # Second continuous predictor (used in "With Continuous" mode)
     continuous2_name = mo.ui.text(value="z", label="2nd Predictor Name:", placeholder="e.g., Age")
-    continuous2_hold = mo.ui.slider(start=0, stop=100, step=1, value=50, label="Hold 2nd predictor at:")
+    continuous2_hold = mo.ui.slider(start=0, stop=50, step=1, value=25, label="Hold 2nd predictor at:", show_value=True)
 
     # Third continuous predictor
     continuous3_name = mo.ui.text(value="w", label="3rd Predictor Name:", placeholder="e.g., Income")
-    continuous3_hold = mo.ui.slider(start=0, stop=100, step=1, value=50, label="Hold 3rd predictor at:")
+    continuous3_hold = mo.ui.slider(start=0, stop=50, step=1, value=25, label="Hold 3rd predictor at:", show_value=True)
 
     # Distribution type toggle
     dist_type = mo.ui.dropdown(options=["Uniform", "Normal"], value="Uniform", label="Distribution:")
@@ -93,11 +93,11 @@ def _(mo):
     w_sd = mo.ui.text(value="10", label="W σ:")
 
     # Coefficients for multiple regression
-    beta_group = mo.ui.slider(start=-10, stop=10, step=0.1, value=2.0, label="Group Effect (β)")
-    beta_interaction = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.5, label="Interaction (β)")
-    beta_interaction_cont = mo.ui.slider(start=-0.5, stop=0.5, step=0.01, value=0.05, label="x×z Interaction (β)")
-    beta_continuous2 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.5, label="2nd Predictor Effect (β)")
-    beta_continuous3 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.3, label="3rd Predictor Effect (β)")
+    beta_group = mo.ui.slider(start=0, stop=50, step=0.1, value=2.0, label="Group Effect (β)", show_value=True)
+    beta_interaction = mo.ui.slider(start=0, stop=50, step=0.1, value=0.5, label="Interaction (β)", show_value=True)
+    beta_interaction_cont = mo.ui.slider(start=0, stop=1, step=0.01, value=0.05, label="x×z Interaction (β)", show_value=True)
+    beta_continuous2 = mo.ui.slider(start=0, stop=50, step=0.1, value=0.5, label="2nd Predictor Effect (β)", show_value=True)
+    beta_continuous3 = mo.ui.slider(start=0, stop=50, step=0.1, value=0.3, label="3rd Predictor Effect (β)", show_value=True)
 
     return add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name_multi, group1_name_multi, group_var_name, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, z_max, z_mean, z_min, z_sd
 
@@ -181,13 +181,13 @@ def _(mo):
 @app.cell
 def _(mo):
     n_points_slider = mo.ui.slider(
-        start=10, stop=200, step=10, value=50, label="Number of Points"
+        start=10, stop=200, step=10, value=50, label="Number of Points", show_value=True
     )
     noise_slider = mo.ui.slider(
-        start=0, stop=5, step=0.1, value=1.0, label="Error SD (σ)"
+        start=0, stop=50, step=0.5, value=1.0, label="Error SD (σ)", show_value=True
     )
     seed_slider = mo.ui.slider(
-        start=1, stop=100, step=1, value=42, label="Random Seed"
+        start=1, stop=100, step=1, value=42, label="Random Seed", show_value=True
     )
     return n_points_slider, noise_slider, seed_slider
 
@@ -238,12 +238,14 @@ def _(mo):
 @app.cell
 def _(is_binary, mo):
     slope_slider = mo.ui.slider(
-        start=-5, stop=5, step=0.1, value=1.0,
-        label="Slope (β₁)" if not is_binary else "Group Difference (β₁)"
+        start=0, stop=50, step=0.1, value=1.0,
+        label="Slope (β₁)" if not is_binary else "Group Difference (β₁)",
+        show_value=True
     )
     intercept_slider = mo.ui.slider(
-        start=-10, stop=10, step=0.5, value=0.0,
-        label="Intercept (β₀)" if not is_binary else "Group 0 Mean (β₀)"
+        start=0, stop=50, step=0.5, value=0.0,
+        label="Intercept (β₀)" if not is_binary else "Group 0 Mean (β₀)",
+        show_value=True
     )
     return intercept_slider, slope_slider
 
