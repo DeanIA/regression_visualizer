@@ -127,13 +127,14 @@ def _(mo, model_type):
 
 
 @app.cell
-def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, is_binary, is_multiple, mo, w_mean, w_sd, x_mean, x_name, x_sd, y_name, z_mean, z_sd):
+def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, is_binary, is_binned, is_continuous, is_multiple, mo, w_mean, w_sd, x_mean, x_name, x_sd, y_name, z_mean, z_sd):
     # Build display based on model type
     if is_multiple and has_grouping:
         # Categorical variable mode
         _rows = [
             mo.hstack([x_name, y_name], justify="start", gap=4),
             mo.hstack([group_var_name, group0_name_multi, group1_name_multi], justify="start", gap=4),
+            mo.md("**Predictor Distribution** *(set mean/SD to match real data)*"),
             mo.hstack([x_mean, x_sd], justify="start", gap=4),
         ]
         if add_continuous3.value:
@@ -153,6 +154,14 @@ def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_n
         _display = mo.vstack(_rows, gap=2)
     elif is_binary:
         _display = mo.hstack([y_name, group0_name, group1_name], justify="start", gap=4)
+    elif is_continuous or is_binned:
+        # Basic Linear Regression or Binned mode - show x distribution controls
+        _rows = [
+            mo.hstack([x_name, y_name], justify="start", gap=4),
+            mo.md("**Predictor Distribution** *(set mean/SD to match real data)*"),
+            mo.hstack([x_mean, x_sd], justify="start", gap=4),
+        ]
+        _display = mo.vstack(_rows, gap=2)
     else:
         _display = mo.hstack([x_name, y_name], justify="start", gap=4)
     _display
@@ -897,13 +906,16 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         _multi_se_betas = np.sqrt(np.diag(_XtX_inv) * _multi_mse)
 
     elif is_binned:
-        # Binned mode: Generate continuous data then bin it
-        X_MIN, X_MAX = 0, 10
+        # Binned mode: Generate continuous data then bin it - use normal distribution with x_mu, x_sigma
         n_bins = n_bins_slider.value
 
-        # Generate continuous x and y
-        x_continuous = np.random.uniform(X_MIN, X_MAX, n)
+        # Generate continuous x from normal distribution
+        x_continuous = np.random.normal(x_mu, x_sigma, n)
         y_data = intercept + slope * x_continuous + np.random.normal(0, noise_slider.value, n)
+
+        # Calculate X range based on distribution (±3 SD)
+        X_MIN = x_mu - 3 * x_sigma
+        X_MAX = x_mu + 3 * x_sigma
 
         # Create bin edges and assign bins
         bin_edges = np.linspace(X_MIN, X_MAX, n_bins + 1)
@@ -1046,7 +1058,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             title="Regression Plot",
             xaxis=dict(
                 title=f"{x_label} (binned)",
-                range=[X_MIN - 0.5, X_MAX + 0.5],
+                range=[X_MIN - 0.1 * x_sigma, X_MAX + 0.1 * x_sigma],
                 zeroline=True,
                 zerolinewidth=1,
                 zerolinecolor="gray",
@@ -1236,14 +1248,22 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             margin=dict(t=50, b=50, l=50, r=50),
         )
     else:
-        # Continuous mode with transformations
-        # For log transform, x must be positive
-        if transform == "Log (ln x)":
-            X_MIN, X_MAX = 0.1, 10
-        else:
-            X_MIN, X_MAX = 0, 10
+        # Continuous mode with transformations - use normal distribution with x_mu, x_sigma
+        # Generate x from normal distribution
+        x_data_raw = np.random.normal(x_mu, x_sigma, n)
 
-        x_data_raw = np.random.uniform(X_MIN, X_MAX, n)
+        # For log transform, ensure positive values
+        if transform == "Log (ln x)":
+            x_data_raw = np.abs(x_data_raw) + 0.1
+        # For sqrt transform, ensure non-negative
+        elif transform == "Square Root (√x)":
+            x_data_raw = np.abs(x_data_raw)
+
+        # Calculate X range based on distribution (±3 SD)
+        X_MIN = x_mu - 3 * x_sigma
+        X_MAX = x_mu + 3 * x_sigma
+        if transform == "Log (ln x)" or transform == "Square Root (√x)":
+            X_MIN = max(0.1, X_MIN)
 
         # Apply transformation to x for the model
         if transform == "Square Root (√x)":
