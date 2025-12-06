@@ -15,7 +15,12 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Regression Visualizer")
+    mo.md("""# Regression Visualizer
+
+Created by Dean Issacharoff based on *Regression and Other Stories* by Andrew Gelman and Jennifer Hill. Might contain bugs, don't use for exact calculations. R Summaries and OLS calculations use SciPy Python library. Let me know if you find a bug. Sharing is caring, MIT License etc...
+
+[GitHub Repository](https://github.com/DeanIA/regression_visualizer)
+""")
     return
 
 
@@ -1819,7 +1824,7 @@ p-value: {_f_pval:.2e}
                 # Constant model - intercept only
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
@@ -1835,10 +1840,10 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                 _slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 {_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+**Slope (β₁ = {_ols_slope:.2f}):**
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
@@ -1854,10 +1859,10 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                 _slope_interp = f"For every 1-unit increase in **{x_label}²**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units."
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 {_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+**Slope (β₁ = {_ols_slope:.2f}):**
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
@@ -1873,10 +1878,10 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                 _slope_interp = f"For every 1-unit increase in **ln({x_label})**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. A 1% increase in {x_label} corresponds to ~**{_ols_slope/100:.4f}** units change in {y_label}."
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 {_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+**Slope (β₁ = {_ols_slope:.2f}):**
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
@@ -1901,10 +1906,10 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 {_intercept_interp}
 
-**Group Difference (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+**Group Difference (β₁ = {_ols_slope:.2f}):**
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
@@ -1972,10 +1977,10 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+**Intercept (β₀ = {_ols_intercept:.2f}):**
 {_intercept_interp}
 
-**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+**Slope (β₁ = {_ols_slope:.2f}):**
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
@@ -2060,9 +2065,7 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         )
     # Add horizontal line at y=0
     _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
-    # Get x-axis range from fitted values
-    _resid_x_min = np.min(_ols_y_pred) - 2
-    _resid_x_max = np.max(_ols_y_pred) + 2
+    # Fixed axis ranges for residual plot
     _resid_fig.update_layout(
         template="plotly_white",
         width=600,
@@ -2071,7 +2074,7 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         title="Residuals vs Fitted",
         xaxis=dict(
             title="Fitted Values (ŷ)",
-            range=[_resid_x_min, _resid_x_max],
+            range=[0, 50],
             zeroline=True,
             zerolinewidth=1,
             zerolinecolor="gray",
@@ -2080,7 +2083,7 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
         ),
         yaxis=dict(
             title="Residuals (y - ŷ)",
-            range=[-10, 10],
+            range=[-50, 50],
             zeroline=True,
             zerolinewidth=1,
             zerolinecolor="gray",
