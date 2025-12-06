@@ -849,14 +849,26 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         bin_indices = np.digitize(x_continuous, bin_edges[1:-1])  # 0 to n_bins-1
         bin_centers = (bin_edges[:-1] + bin_edges[1:]) / 2
 
-        # Calculate statistics
-        y_pred = intercept + slope * x_continuous
-        residuals = y_data - y_pred
-        mse = np.sum(residuals**2) / (n - 2)
+        # Run actual OLS regression on the underlying continuous data
+        _ols_result = stats.linregress(x_continuous, y_data)
+        _ols_slope = _ols_result.slope
+        _ols_intercept = _ols_result.intercept
+
+        # OLS predictions and residuals
+        _ols_y_pred = _ols_intercept + _ols_slope * x_continuous
+        _ols_residuals = y_data - _ols_y_pred
+
+        # Calculate statistics using OLS
+        df = n - 2
+        mse = np.sum(_ols_residuals**2) / df
         se = np.sqrt(mse)
 
-        t_val_ci = stats.t.ppf((1 + ci_level.value) / 2, n - 2)
-        t_val_pi = stats.t.ppf((1 + pi_level.value) / 2, n - 2)
+        # Sum of squares for x
+        _x_mean = np.mean(x_continuous)
+        ss_x = np.sum((x_continuous - _x_mean)**2)
+
+        t_val_ci = stats.t.ppf((1 + ci_level.value) / 2, df)
+        t_val_pi = stats.t.ppf((1 + pi_level.value) / 2, df)
 
         # Colors for bins
         colors = [f"hsl({int(i * 360 / n_bins)}, 70%, 50%)" for i in range(n_bins)]
@@ -995,11 +1007,23 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         x_data = np.concatenate([np.zeros(n_per_group), np.ones(n - n_per_group)])
         y_data = np.concatenate([y_group0, y_group1])
 
-        # Calculate pooled statistics
-        y_pred = intercept + slope * x_data
-        residuals = y_data - y_pred
-        mse = np.sum(residuals**2) / (n - 2)
+        # Run actual OLS regression on the data
+        _ols_result = stats.linregress(x_data, y_data)
+        _ols_slope = _ols_result.slope
+        _ols_intercept = _ols_result.intercept
+
+        # OLS predictions and residuals
+        _ols_y_pred = _ols_intercept + _ols_slope * x_data
+        _ols_residuals = y_data - _ols_y_pred
+
+        # Calculate pooled statistics using OLS
+        df = n - 2
+        mse = np.sum(_ols_residuals**2) / df
         se = np.sqrt(mse)
+
+        # Sum of squares for x (binary: 0s and 1s)
+        _x_mean = np.mean(x_data)
+        ss_x = np.sum((x_data - _x_mean)**2)
 
         # Standard errors for group means
         se_mean0 = se / np.sqrt(n_per_group)
@@ -1341,8 +1365,8 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
         plot_output = mo.ui.plotly(fig)
 
     # Return actual regression statistics for R summary
-    # Only available for basic linear regression mode
-    if not is_binned and not is_binary and not is_multiple:
+    # Available for basic linear regression, binary, and binned modes
+    if not is_multiple:
         reg_stats = {
             "n": n,
             "df": df,
@@ -1354,9 +1378,18 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             "ols_y_pred": _ols_y_pred,
             "ols_slope": _ols_slope,
             "ols_intercept": _ols_intercept,
-            "x_data_transformed": x_data_transformed,
             "ols_residuals": _ols_residuals,
+            "is_binary": is_binary,
+            "is_binned": is_binned,
         }
+        if is_binary:
+            reg_stats["x_data"] = x_data
+            reg_stats["g0_label"] = g0_label
+            reg_stats["g1_label"] = g1_label
+        elif is_binned:
+            reg_stats["x_data"] = x_continuous
+        else:
+            reg_stats["x_data"] = x_data_transformed
     else:
         reg_stats = None
     return plot_output, reg_stats
@@ -1423,12 +1456,14 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
             _f_stat = 0
             _f_pval = 1
 
+        # Use appropriate label for predictor in summary table
+        _predictor_label = x_label if not reg_stats.get("is_binary", False) else "Group"
         _r_summary = f"""### Regression Summary (OLS on simulated data)
 ```
 Coefficients:
               Estimate Std.Err t value  Pr(>|t|)
 (Intercept)   {_ols_intercept:8.3f} {_se_intercept:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}
-{x_label:13s} {_ols_slope:8.3f} {_se_slope:7.3f} {_t_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
+{_predictor_label:13s} {_ols_slope:8.3f} {_se_slope:7.3f} {_t_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
 ---
 Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
 
@@ -1515,6 +1550,61 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
+        elif reg_stats.get("is_binary", False):
+            # Binary mode - means comparison interpretation
+            _g0_label = reg_stats["g0_label"]
+            _g1_label = reg_stats["g1_label"]
+            _intercept_interp = f"The estimated mean of **{y_label}** for **{_g0_label}** is **{_ols_intercept:.2f}**."
+
+            if _ols_slope > 0:
+                _direction = "higher"
+            elif _ols_slope < 0:
+                _direction = "lower"
+            else:
+                _direction = "the same as"
+
+            if _ols_slope != 0:
+                _slope_interp = f"**{_g1_label}** has a mean **{y_label}** that is **{abs(_ols_slope):.2f}** units {_direction} than **{_g0_label}**. (Estimated mean for {_g1_label} = {_ols_intercept + _ols_slope:.2f})"
+            else:
+                _slope_interp = f"**{_g1_label}** and **{_g0_label}** have approximately the same mean **{y_label}** (no group difference)."
+
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
+
+**Group Difference (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
+{_model_fit}"""
+        elif reg_stats.get("is_binned", False):
+            # Binned mode - OLS on underlying continuous data
+            _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}** (based on underlying continuous data)."
+            if _ols_slope > 0:
+                _direction = "increase"
+            elif _ols_slope < 0:
+                _direction = "decrease"
+            else:
+                _direction = "no change"
+
+            if _ols_slope != 0:
+                _slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** is expected to {_direction} by **{abs(_ols_slope):.2f}** units."
+            else:
+                _slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope ≈ 0)."
+
+            _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+*Note: OLS computed on underlying continuous data, not bin means.*
+
+**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_intercept:.2f}, t = {_t_intercept:.2f}):**
+{_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}, SE = {_se_slope:.2f}, t = {_t_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
         else:
             # No transformation - standard linear regression
             _intercept_interp = f"When **{x_label}** equals 0, the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
@@ -1582,9 +1672,13 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
     _right_col = mo.md(_r_summary)
     _bottom_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
 
-    # Create plots row: regression plot | residuals vs fitted (if available)
+    # Create plots row with subtitles: regression plot | residuals vs fitted (if available)
     if _resid_plot is not None:
-        _plots_row = mo.hstack([plot_output, _resid_plot], widths=[1, 1], gap=2)
+        _reg_subtitle = mo.md("*Shows the relationship between predictor and outcome. Look for: linear pattern, spread of points around line.*")
+        _resid_subtitle = mo.md("*Checks model assumptions. Look for: random scatter around zero (good), patterns/funnel shapes (bad — suggests non-linearity or heteroscedasticity).*")
+        _reg_with_subtitle = mo.vstack([plot_output, _reg_subtitle], gap=1)
+        _resid_with_subtitle = mo.vstack([_resid_plot, _resid_subtitle], gap=1)
+        _plots_row = mo.hstack([_reg_with_subtitle, _resid_with_subtitle], widths=[1, 1], gap=2)
     else:
         _plots_row = plot_output
 
