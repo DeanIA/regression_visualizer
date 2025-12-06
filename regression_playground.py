@@ -28,9 +28,14 @@ def _(mo):
 @app.cell
 def _(mo):
     model_type = mo.ui.radio(
-        options=["Continuous (Regression)", "Binary (Means Comparison)", "Binned (Categorized)", "Multiple Regression"],
-        value="Continuous (Regression)",
-        label="Predictor Type:"
+        options=[
+            "Basic Linear Regression",
+            "Binary (Means Comparison)",
+            "Binned (Categorized)",
+            "Multivariable: Categorical",
+            "Multivariable: Continuous",
+        ],
+        value="Basic Linear Regression",
     )
     n_bins_slider = mo.ui.slider(
         start=2, stop=10, step=1, value=3, label="Number of Bins"
@@ -45,15 +50,7 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    # Multiple regression specific controls
-    # Choice between categorical variable or continuous predictors
-    multi_type = mo.ui.radio(
-        options=["With Categorical Variable", "With Continuous"],
-        value="With Categorical Variable",
-        label="Multiple Regression Type:"
-    )
-
-    # Categorical variable controls
+    # Categorical variable controls (for Multivariable: With Categorical)
     group_var_name = mo.ui.text(value="Group", label="Categorical Variable:", placeholder="e.g., Treatment")
     group0_name_multi = mo.ui.text(value="Control", label="Group 0:", placeholder="e.g., Control")
     group1_name_multi = mo.ui.text(value="Treatment", label="Group 1:", placeholder="e.g., Treatment")
@@ -86,26 +83,21 @@ def _(mo):
     beta_continuous2 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.5, label="2nd Predictor Effect (β)")
     beta_continuous3 = mo.ui.slider(start=-5, stop=5, step=0.1, value=0.3, label="3rd Predictor Effect (β)")
 
-    return add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name_multi, group1_name_multi, group_var_name, multi_type, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd
+    return add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name_multi, group1_name_multi, group_var_name, w_mean, w_sd, x_mean, x_sd, z_mean, z_sd
 
 
 @app.cell
-def _(mo, model_type, multi_type, n_bins_slider, x_transform):
+def _(mo, model_type, n_bins_slider):
     is_binned = model_type.value == "Binned (Categorized)"
-    is_continuous = model_type.value == "Continuous (Regression)"
-    is_multiple = model_type.value == "Multiple Regression"
-    has_grouping = multi_type.value == "With Categorical Variable"
+    is_continuous = model_type.value == "Basic Linear Regression"
+    is_multiple = model_type.value.startswith("Multivariable:")
+    has_grouping = model_type.value == "Multivariable: Categorical"
 
     # Show appropriate controls based on model type
-    _display = (
-        mo.hstack([model_type, n_bins_slider], justify="start", gap=4) if is_binned
-        else mo.vstack([
-            mo.hstack([model_type, x_transform], justify="start", gap=4),
-            multi_type
-        ], gap=2) if is_multiple
-        else mo.hstack([model_type, x_transform], justify="start", gap=4) if is_continuous
-        else mo.hstack([model_type], justify="start", gap=4)
-    )
+    items = [model_type]
+    if is_binned:
+        items.append(n_bins_slider)
+    _display = mo.vstack(items, gap=1)
     _display
     return has_grouping, is_binned, is_continuous, is_multiple
 
@@ -160,7 +152,7 @@ def _(add_continuous3, continuous2_name, continuous3_name, group0_name, group0_n
             _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
         _display = mo.vstack(_rows, gap=2)
     elif is_binary:
-        _display = mo.hstack([x_name, y_name, group0_name, group1_name], justify="start", gap=4)
+        _display = mo.hstack([y_name, group0_name, group1_name], justify="start", gap=4)
     else:
         _display = mo.hstack([x_name, y_name], justify="start", gap=4)
     _display
@@ -187,7 +179,7 @@ def _(is_binary, mo):
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous3_hold, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous3_hold, has_grouping, intercept_slider, is_binary, is_continuous, is_multiple, mo, slope_slider, x_transform):
     # Build display based on model type
     if is_multiple and has_grouping:
         # Categorical variable mode: x + Group + optional interaction + optional 3rd predictor
@@ -215,6 +207,11 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
             mo.hstack([intercept_slider, slope_slider], justify="start", gap=4),
             mo.md(f"*Group 0 Mean = β₀ = {intercept_slider.value:.1f}, Group 1 Mean = β₀ + β₁ = {intercept_slider.value + slope_slider.value:.1f}*")
         ])
+    elif is_continuous:
+        _display = mo.vstack([
+            mo.hstack([slope_slider, intercept_slider], justify="start", gap=4),
+            x_transform
+        ], gap=2)
     else:
         _display = mo.hstack([slope_slider, intercept_slider], justify="start", gap=4)
     _display
@@ -255,34 +252,39 @@ def _(mo):
 
 @app.cell
 def _(mo):
-    # Checkboxes for toggling display
-    show_variance = mo.ui.checkbox(value=False, label="Show Variance")
-    show_sd = mo.ui.checkbox(value=False, label="Show Standard Deviation (SD)")
-    show_ci = mo.ui.checkbox(value=False, label="Show Confidence Interval (CI)")
-    show_pi = mo.ui.checkbox(value=False, label="Show Prediction Interval (PI)")
-
-    # Sliders for adjustable values
-    sd_multiplier = mo.ui.slider(start=1, stop=3, step=0.5, value=1, label="SD Multiplier")
+    show_sd = mo.ui.checkbox(value=False, label="Show Standard Deviation (SD) — spread of individual data points around line")
+    show_ci = mo.ui.checkbox(value=False, label="Show Confidence Interval (CI) — uncertainty about TRUE regression line")
+    show_pi = mo.ui.checkbox(value=False, label="Show Prediction Interval (PI) — range for NEW individual observation")
+    sd_multiplier = mo.ui.slider(start=1, stop=3, step=0.5, value=1, label="± SD")
     ci_level = mo.ui.slider(start=0.80, stop=0.99, step=0.01, value=0.95, label="CI Level")
     pi_level = mo.ui.slider(start=0.80, stop=0.99, step=0.01, value=0.95, label="PI Level")
-
-    return ci_level, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_variance
+    return ci_level, pi_level, sd_multiplier, show_ci, show_pi, show_sd
 
 
 @app.cell
-def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_variance):
-    mo.vstack([
-        mo.hstack([show_variance, mo.md(f"*Shows ±2 SD band around the regression line to visualize spread of residuals (Variance = SD²)*")], align="center", gap=2),
-        mo.hstack([show_sd, sd_multiplier, mo.md(f"*Shows ±{sd_multiplier.value} SD band. SD measures average distance of points from the line.*")], align="center", gap=2),
-        mo.hstack([show_ci, ci_level, mo.md(f"*{int(ci_level.value*100)}% CI: Range where the TRUE regression line likely falls. Narrower with more data.*")], align="center", gap=2),
-        mo.hstack([show_pi, pi_level, mo.md(f"*{int(pi_level.value*100)}% PI: Range where a NEW individual observation would likely fall. Always wider than CI.*")], align="center", gap=2),
-    ], gap=1)
+def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
+    _items = []
+
+    _items.append(show_sd)
+    if show_sd.value:
+        _items.append(sd_multiplier)
+
+    _items.append(show_ci)
+    if show_ci.value:
+        _items.append(ci_level)
+
+    _items.append(show_pi)
+    if show_pi.value:
+        _items.append(pi_level)
+
+    _display = mo.vstack(_items, gap=0)
+    _display
     return
 
 
 @app.cell
 def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider, w_mean, w_sd, x_mean, x_name, x_sd, x_transform, y_name, z_mean, z_sd):
-    x_label = x_name.value or ("Group" if is_binary else "x")
+    x_label = "x" if is_binary else (x_name.value or "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
     intercept = intercept_slider.value
@@ -401,7 +403,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
             else:
                 group_interp += f", **{g1_multi_label}** has **{abs(b_group):.1f}** units {grp_direction} **{y_label}** *when {x_label}=0*."
 
-            coef_text = f"""### Coefficient Interpretation (Multiple Regression, RAOS Style)
+            coef_text = f"""### Coefficient Interpretation (Multivariable, RAOS Style)
 
 **Intercept (β₀ = {intercept:.1f}):** {intercept_interp}
 
@@ -598,12 +600,11 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 
 **Slope (β₁ = {slope:.1f}):** {slope_interp}
 """
-    mo.md(coef_text)
-    return
+    return (coef_text,)
 
 
 @app.cell
-def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, stats, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma):
+def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hold, w_label, w_mu, w_sigma, x_label, x_mu, x_sigma, x_term, y_label, z_hold, z_label, z_mu, z_sigma):
     # Fixed axis ranges
     Y_MIN, Y_MAX = -15, 15
 
@@ -913,6 +914,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # SD bands per bin (full width rectangles)
         if show_sd.value:
             sd_mult = sd_multiplier.value
+            sd_pct = (stats.norm.cdf(sd_mult) - stats.norm.cdf(-sd_mult)) * 100
             for i in range(n_bins):
                 if not np.isnan(bin_means[i]):
                     fig.add_shape(
@@ -926,7 +928,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                     )
             fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
                 marker=dict(size=10, color="rgba(0, 200, 0, 0.3)"),
-                name=f"±{sd_mult} SD"))
+                name=f"±{sd_mult} SD ({sd_pct:.0f}% of data)"))
 
         # CI bands per bin (full width)
         if show_ci.value:
@@ -1080,6 +1082,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # SD bands
         if show_sd.value:
             sd_mult = sd_multiplier.value
+            sd_pct = (stats.norm.cdf(sd_mult) - stats.norm.cdf(-sd_mult)) * 100
             fig.add_shape(
                 type="rect", x0=-0.3, x1=0.3, y0=mean0 - sd_mult*se, y1=mean0 + sd_mult*se,
                 fillcolor="rgba(0, 200, 0, 0.2)", line=dict(width=0),
@@ -1090,21 +1093,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             )
             fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
                 marker=dict(size=10, color="rgba(0, 200, 0, 0.3)"),
-                name=f"±{sd_mult} SD"))
-
-        # Variance bands
-        if show_variance.value:
-            fig.add_shape(
-                type="rect", x0=-0.3, x1=0.3, y0=mean0 - 2*se, y1=mean0 + 2*se,
-                fillcolor="rgba(128, 0, 128, 0.15)", line=dict(width=0),
-            )
-            fig.add_shape(
-                type="rect", x0=0.7, x1=1.3, y0=mean1 - 2*se, y1=mean1 + 2*se,
-                fillcolor="rgba(128, 0, 128, 0.15)", line=dict(width=0),
-            )
-            fig.add_trace(go.Scatter(x=[None], y=[None], mode="markers",
-                marker=dict(size=10, color="rgba(128, 0, 128, 0.2)"),
-                name=f"±2 SD (Var={mse:.2f})"))
+                name=f"±{sd_mult} SD ({sd_pct:.0f}% of data)"))
 
         # Layout for binary
         fig.update_layout(
@@ -1241,6 +1230,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # Add standard deviation band
         if show_sd.value:
             sd_mult = sd_multiplier.value
+            sd_pct = (stats.norm.cdf(sd_mult) - stats.norm.cdf(-sd_mult)) * 100
             sd_upper = y_line_smooth + sd_mult * se
             sd_lower = y_line_smooth - sd_mult * se
             fig.add_trace(
@@ -1250,23 +1240,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                     fill="toself",
                     fillcolor="rgba(0, 200, 0, 0.2)",
                     line=dict(color="rgba(0,0,0,0)"),
-                    name=f"±{sd_mult} SD (σ = {se:.2f})",
-                    hoverinfo="skip",
-                )
-            )
-
-        # Add variance visualization
-        if show_variance.value:
-            var_upper = y_line_smooth + 2 * se
-            var_lower = y_line_smooth - 2 * se
-            fig.add_trace(
-                go.Scatter(
-                    x=np.concatenate([x_line_smooth, x_line_smooth[::-1]]),
-                    y=np.concatenate([var_upper, var_lower[::-1]]),
-                    fill="toself",
-                    fillcolor="rgba(128, 0, 128, 0.15)",
-                    line=dict(color="rgba(0,0,0,0)"),
-                    name=f"±2 SD (Var = {mse:.2f})",
+                    name=f"±{sd_mult} SD ({sd_pct:.0f}% of data)",
                     hoverinfo="skip",
                 )
             )
@@ -1345,6 +1319,95 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
     else:
         _display = mo.ui.plotly(fig)
     _display
+    return
+
+
+@app.cell
+def _(coef_text, intercept, is_binary, is_multiple, mo, n_points_slider, noise_slider, np, slope, stats, transform, x_label, y_label):
+    # Generate R-style summary statistics
+    _n_pts = n_points_slider.value
+    _noise = noise_slider.value
+
+    # For simple regression, calculate standard errors and t-values
+    # Note: These are theoretical values based on the true model parameters
+    # In practice, you'd compute these from actual data
+
+    # Residual standard error (sigma) - this is what we set with noise slider
+    _sigma = _noise
+
+    # Degrees of freedom
+    if is_multiple:
+        _df = _n_pts - 3  # Approximate for multivariable
+    elif is_binary:
+        _df = _n_pts - 2
+    elif transform == "Constant (no x)":
+        _df = _n_pts - 1
+    else:
+        _df = _n_pts - 2
+
+    # Standard errors (approximate, assuming reasonable x spread)
+    _se_intercept = _sigma / np.sqrt(_n_pts) * 2  # Rough approximation
+    _se_slope = _sigma / np.sqrt(_n_pts) * 0.5 if transform != "Constant (no x)" else 0
+
+    # t-values
+    _t_intercept = intercept / _se_intercept if _se_intercept > 0 else 0
+    _t_slope = slope / _se_slope if _se_slope > 0 else 0
+
+    # p-values (two-tailed)
+    _p_intercept = 2 * (1 - stats.t.cdf(abs(_t_intercept), _df)) if _df > 0 else 1
+    _p_slope = 2 * (1 - stats.t.cdf(abs(_t_slope), _df)) if _df > 0 and _se_slope > 0 else 1
+
+    # Significance stars
+    def _sig_stars(p):
+        if p < 0.001:
+            return "***"
+        elif p < 0.01:
+            return "**"
+        elif p < 0.05:
+            return "*"
+        elif p < 0.1:
+            return "."
+        else:
+            return ""
+
+    # R² (theoretical, based on signal to noise ratio)
+    # R² ≈ var(signal) / (var(signal) + var(noise))
+    # For slope=1 and x with SD≈5, signal variance ≈ 25
+    _signal_var = slope**2 * 25 if transform != "Constant (no x)" else 0
+    _total_var = _signal_var + _sigma**2
+    _r_squared = _signal_var / _total_var if _total_var > 0 else 0
+    _adj_r_squared = 1 - (1 - _r_squared) * (_n_pts - 1) / _df if _df > 0 else 0
+
+    # F-statistic
+    if transform != "Constant (no x)" and _df > 0:
+        _f_stat = (_r_squared / 1) / ((1 - _r_squared) / _df) if _r_squared < 1 else float('inf')
+        _f_pval = 1 - stats.f.cdf(_f_stat, 1, _df)
+    else:
+        _f_stat = 0
+        _f_pval = 1
+
+    _r_summary = f"""### R-Style Summary
+```
+Coefficients:
+              Estimate Std.Err t value  Pr(>|t|)
+(Intercept)   {intercept:8.3f} {_se_intercept:7.3f} {_t_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}
+{x_label:13s} {slope:8.3f} {_se_slope:7.3f} {_t_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
+---
+Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
+
+Residual SE: {_sigma:.3f} on {_df} df
+R-squared: {_r_squared:.4f}, Adj R²: {_adj_r_squared:.4f}
+F-statistic: {_f_stat:.2f} on 1 and {_df} DF
+p-value: {_f_pval:.2e}
+```
+"""
+
+    # Create side-by-side layout
+    _left_col = mo.md(coef_text)
+    _right_col = mo.md(_r_summary)
+
+    _layout = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
+    _layout
     return
 
 
