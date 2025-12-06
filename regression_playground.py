@@ -15,7 +15,7 @@ def _():
 
 @app.cell
 def _(mo):
-    mo.md("# Single Variable Linear Regression Visualizer")
+    mo.md("# Regression Visualizer")
     return
 
 
@@ -28,7 +28,7 @@ def _(mo):
 @app.cell
 def _(mo):
     model_type = mo.ui.radio(
-        options=["Continuous (Regression)", "Binary (Means Comparison)", "Binned (Categorized)"],
+        options=["Continuous (Regression)", "Binary (Means Comparison)", "Binned (Categorized)", "Multiple Regression"],
         value="Continuous (Regression)",
         label="Predictor Type:"
     )
@@ -44,11 +44,59 @@ def _(mo):
 
 
 @app.cell
-def _(mo, model_type, n_bins_slider, x_transform):
+def _(mo):
+    # Multiple regression specific controls
+    # Choice between grouping variable or two continuous predictors
+    multi_type = mo.ui.radio(
+        options=["With Grouping Variable", "Two Continuous Predictors"],
+        value="With Grouping Variable",
+        label="Multiple Regression Type:"
+    )
+
+    # Grouping variable controls
+    group_var_name = mo.ui.text(value="Group", label="Grouping Variable:", placeholder="e.g., Treatment")
+    group0_name_multi = mo.ui.text(value="Control", label="Group 0:", placeholder="e.g., Control")
+    group1_name_multi = mo.ui.text(value="Treatment", label="Group 1:", placeholder="e.g., Treatment")
+
+    add_interaction = mo.ui.checkbox(value=False, label="Add Interaction (different slopes per group)")
+    add_continuous2 = mo.ui.checkbox(value=False, label="Add 3rd Predictor (continuous)")
+
+    # Second continuous predictor (used in both modes)
+    continuous2_name = mo.ui.text(value="z", label="2nd Predictor Name:", placeholder="e.g., Age")
+    continuous2_hold = mo.ui.slider(start=0, stop=10, step=0.5, value=5.0, label="Hold 2nd predictor at:")
+
+    # Third continuous predictor (only for grouping mode with 3rd predictor)
+    continuous3_name = mo.ui.text(value="w", label="3rd Predictor Name:", placeholder="e.g., Income")
+    continuous3_hold = mo.ui.slider(start=0, stop=10, step=0.5, value=5.0, label="Hold 3rd predictor at:")
+
+    # Coefficients for multiple regression
+    beta_group = mo.ui.slider(start=-5, stop=5, step=0.1, value=2.0, label="Group Effect (β₂)")
+    beta_interaction = mo.ui.slider(start=-3, stop=3, step=0.1, value=0.5, label="Interaction (β₃)")
+    beta_continuous2 = mo.ui.slider(start=-3, stop=3, step=0.1, value=0.5, label="2nd Predictor Effect (β₂)")
+    beta_continuous3 = mo.ui.slider(start=-3, stop=3, step=0.1, value=0.3, label="3rd Predictor Effect")
+
+    return add_continuous2, add_interaction, beta_continuous2, beta_continuous3, beta_group, beta_interaction, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name_multi, group1_name_multi, group_var_name, multi_type
+
+
+@app.cell
+def _(mo, model_type, multi_type, n_bins_slider, x_transform):
     is_binned = model_type.value == "Binned (Categorized)"
     is_continuous = model_type.value == "Continuous (Regression)"
-    mo.hstack([model_type, n_bins_slider] if is_binned else ([model_type, x_transform] if is_continuous else [model_type]), justify="start", gap=4)
-    return is_binned, is_continuous
+    is_multiple = model_type.value == "Multiple Regression"
+    has_grouping = multi_type.value == "With Grouping Variable"
+
+    # Show appropriate controls based on model type
+    _display = (
+        mo.hstack([model_type, n_bins_slider], justify="start", gap=4) if is_binned
+        else mo.vstack([
+            mo.hstack([model_type, x_transform], justify="start", gap=4),
+            multi_type
+        ], gap=2) if is_multiple
+        else mo.hstack([model_type, x_transform], justify="start", gap=4) if is_continuous
+        else mo.hstack([model_type], justify="start", gap=4)
+    )
+    _display
+    return has_grouping, is_binned, is_continuous, is_multiple
 
 
 @app.cell
@@ -76,8 +124,28 @@ def _(mo, model_type):
 
 
 @app.cell
-def _(group0_name, group1_name, is_binary, mo, x_name, y_name):
-    mo.hstack([x_name, y_name, group0_name, group1_name] if is_binary else [x_name, y_name], justify="start", gap=4)
+def _(add_continuous2, continuous2_name, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, is_binary, is_multiple, mo, x_name, y_name):
+    # Build display based on model type
+    if is_multiple and has_grouping:
+        # Grouping variable mode
+        _rows = [
+            mo.hstack([x_name, y_name], justify="start", gap=4),
+            mo.hstack([group_var_name, group0_name_multi, group1_name_multi], justify="start", gap=4),
+        ]
+        if add_continuous2.value:
+            _rows.append(mo.hstack([continuous3_name], justify="start", gap=4))
+        _display = mo.vstack(_rows, gap=2)
+    elif is_multiple and not has_grouping:
+        # Two continuous predictors mode
+        _display = mo.vstack([
+            mo.hstack([x_name, y_name], justify="start", gap=4),
+            mo.hstack([continuous2_name], justify="start", gap=4),
+        ], gap=2)
+    elif is_binary:
+        _display = mo.hstack([x_name, y_name, group0_name, group1_name], justify="start", gap=4)
+    else:
+        _display = mo.hstack([x_name, y_name], justify="start", gap=4)
+    _display
     return
 
 
@@ -101,11 +169,33 @@ def _(is_binary, mo):
 
 
 @app.cell
-def _(intercept_slider, is_binary, mo, slope_slider):
-    mo.vstack([
-        mo.hstack([intercept_slider, slope_slider], justify="start", gap=4),
-        mo.md(f"*Group 0 Mean = β₀ = {intercept_slider.value:.1f}, Group 1 Mean = β₀ + β₁ = {intercept_slider.value + slope_slider.value:.1f}*") if is_binary else None
-    ]) if is_binary else mo.hstack([slope_slider, intercept_slider], justify="start", gap=4)
+def _(add_continuous2, add_interaction, beta_continuous2, beta_continuous3, beta_group, beta_interaction, continuous2_hold, continuous3_hold, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider):
+    # Build display based on model type
+    if is_multiple and has_grouping:
+        # Grouping variable mode: x + Group + optional interaction + optional 3rd predictor
+        _rows = [
+            mo.hstack([intercept_slider, slope_slider, beta_group], justify="start", gap=4),
+            mo.hstack([add_interaction, beta_interaction], justify="start", gap=4) if add_interaction.value else add_interaction,
+        ]
+        if add_continuous2.value:
+            _rows.append(mo.hstack([add_continuous2, beta_continuous3, continuous3_hold], justify="start", gap=4))
+        else:
+            _rows.append(add_continuous2)
+        _display = mo.vstack(_rows, gap=2)
+    elif is_multiple and not has_grouping:
+        # Two continuous predictors mode: x + z
+        _display = mo.vstack([
+            mo.hstack([intercept_slider, slope_slider], justify="start", gap=4),
+            mo.hstack([beta_continuous2, continuous2_hold], justify="start", gap=4),
+        ], gap=2)
+    elif is_binary:
+        _display = mo.vstack([
+            mo.hstack([intercept_slider, slope_slider], justify="start", gap=4),
+            mo.md(f"*Group 0 Mean = β₀ = {intercept_slider.value:.1f}, Group 1 Mean = β₀ + β₁ = {intercept_slider.value + slope_slider.value:.1f}*")
+        ])
+    else:
+        _display = mo.hstack([slope_slider, intercept_slider], justify="start", gap=4)
+    _display
     return
 
 
@@ -169,7 +259,7 @@ def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd, show_var
 
 
 @app.cell
-def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x_name, x_transform, y_name):
+def _(add_continuous2, add_interaction, beta_continuous2, beta_continuous3, beta_group, beta_interaction, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider, x_name, x_transform, y_name):
     x_label = x_name.value or ("Group" if is_binary else "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
@@ -177,6 +267,21 @@ def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x
     g0_label = group0_name.value or "Group 0"
     g1_label = group1_name.value or "Group 1"
     transform = x_transform.value
+
+    # Multiple regression specific labels
+    grp_var_label = group_var_name.value or "Group"
+    g0_multi_label = group0_name_multi.value or "Control"
+    g1_multi_label = group1_name_multi.value or "Treatment"
+    z_label = continuous2_name.value or "z"
+    w_label = continuous3_name.value or "w"
+    b_group = beta_group.value
+    b_interaction = beta_interaction.value
+    b_cont2 = beta_continuous2.value
+    b_cont3 = beta_continuous3.value
+    z_hold = continuous2_hold.value
+    w_hold = continuous3_hold.value
+    has_interaction = add_interaction.value
+    has_cont3 = add_continuous2.value  # In grouping mode, this is the 3rd predictor
 
     # Get transformed x label for equation
     if transform == "Square Root (√x)":
@@ -190,7 +295,20 @@ def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x
     else:
         x_term = x_label
 
-    if is_binary:
+    if is_multiple:
+        if has_grouping:
+            # Grouping variable mode: y = β₀ + β₁x + β₂Group + β₃(x×Group) + β₄w
+            eq_parts = [f"{intercept:.1f}", f"{slope:.1f}×{x_term or x_label}", f"{b_group:.1f}×{grp_var_label}"]
+            if has_interaction:
+                eq_parts.append(f"{b_interaction:.1f}×({x_term or x_label}×{grp_var_label})")
+            if has_cont3:
+                eq_parts.append(f"{b_cont3:.1f}×{w_label}")
+            equation = f"**{y_label} = " + " + ".join(eq_parts) + f"**  (where {grp_var_label} = 0 for {g0_multi_label}, 1 for {g1_multi_label})"
+        else:
+            # Two continuous predictors mode: y = β₀ + β₁x + β₂z
+            eq_parts = [f"{intercept:.1f}", f"{slope:.1f}×{x_term or x_label}", f"{b_cont2:.1f}×{z_label}"]
+            equation = f"**{y_label} = " + " + ".join(eq_parts) + "**"
+    elif is_binary:
         equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}**  (where {x_label} = 0 for {g0_label}, 1 for {g1_label})"
     elif x_term is None:
         equation = f"**{y_label} = {intercept:.1f}**  (constant model, no predictor)"
@@ -198,12 +316,136 @@ def _(group0_name, group1_name, intercept_slider, is_binary, mo, slope_slider, x
         equation = f"**{y_label} = {intercept:.1f} + {slope:.1f} × {x_term}**"
 
     mo.md(f"### Model Equation: {equation}")
-    return g0_label, g1_label, intercept, slope, transform, x_label, x_term, y_label
+    return b_cont2, b_cont3, b_group, b_interaction, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, intercept, slope, transform, w_hold, w_label, x_label, x_term, y_label, z_hold, z_label
 
 
 @app.cell
-def _(g0_label, g1_label, intercept, is_binary, mo, slope, transform, x_label, x_term, y_label):
-    if is_binary:
+def _(b_cont2, b_cont3, b_group, b_interaction, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_grouping, has_interaction, intercept, is_binary, is_multiple, mo, slope, transform, w_hold, w_label, x_label, x_term, y_label, z_hold, z_label):
+    if is_multiple:
+        if has_grouping:
+            # Grouping variable mode - RAOS-style interpretation
+            # Intercept interpretation
+            intercept_interp = f"For **{g0_multi_label}** (when {grp_var_label}=0), when **{x_label}**=0"
+            if has_cont3:
+                intercept_interp += f" and **{w_label}**=0"
+            intercept_interp += f", the predicted **{y_label}** is **{intercept:.1f}**."
+
+            # Slope (β₁) interpretation - continuous x effect
+            if slope > 0:
+                direction = "higher"
+            elif slope < 0:
+                direction = "lower"
+            else:
+                direction = "unchanged"
+
+            slope_interp = f"Comparing two observations with the same **{grp_var_label}**"
+            if has_cont3:
+                slope_interp += f" and same **{w_label}**"
+            if slope != 0:
+                slope_interp += f", a 1-unit difference in **{x_term or x_label}** corresponds to a **{abs(slope):.1f}**-unit {direction} **{y_label}**."
+            else:
+                slope_interp += f", **{x_label}** has no effect on **{y_label}**."
+
+            # Group effect (β₂) interpretation
+            if b_group > 0:
+                grp_direction = "higher"
+            elif b_group < 0:
+                grp_direction = "lower"
+            else:
+                grp_direction = "same"
+
+            group_interp = f"Comparing **{g1_multi_label}** to **{g0_multi_label}** at the same **{x_label}**"
+            if has_cont3:
+                group_interp += f" and same **{w_label}**"
+            if not has_interaction:
+                if b_group != 0:
+                    group_interp += f", **{g1_multi_label}** has **{abs(b_group):.1f}** units {grp_direction} **{y_label}**."
+                else:
+                    group_interp += f", there is no difference between groups."
+            else:
+                group_interp += f", **{g1_multi_label}** has **{abs(b_group):.1f}** units {grp_direction} **{y_label}** *when {x_label}=0*."
+
+            coef_text = f"""### Coefficient Interpretation (Multiple Regression, RAOS Style)
+
+**Intercept (β₀ = {intercept:.1f}):** {intercept_interp}
+
+**Slope of {x_term or x_label} (β₁ = {slope:.1f}):** {slope_interp}
+
+**{grp_var_label} Effect (β₂ = {b_group:.1f}):** {group_interp}
+"""
+            # Interaction interpretation (β₃)
+            if has_interaction:
+                if b_interaction > 0:
+                    int_direction = "stronger"
+                elif b_interaction < 0:
+                    int_direction = "weaker"
+                else:
+                    int_direction = "the same"
+
+                if b_interaction != 0:
+                    interaction_interp = f"The effect of **{x_term or x_label}** on **{y_label}** is **{abs(b_interaction):.1f}** units {int_direction} for **{g1_multi_label}** than for **{g0_multi_label}**. (Slope for {g0_multi_label}: {slope:.1f}, Slope for {g1_multi_label}: {slope + b_interaction:.1f})"
+                else:
+                    interaction_interp = f"The effect of **{x_label}** is the same for both groups (parallel lines)."
+
+                coef_text += f"""
+**Interaction (β₃ = {b_interaction:.1f}):** {interaction_interp}
+"""
+
+            # Third continuous predictor interpretation
+            if has_cont3:
+                if b_cont3 > 0:
+                    w_direction = "higher"
+                elif b_cont3 < 0:
+                    w_direction = "lower"
+                else:
+                    w_direction = "unchanged"
+
+                w_interp = f"Holding **{x_label}** and **{grp_var_label}** constant, a 1-unit increase in **{w_label}** corresponds to **{abs(b_cont3):.1f}** units {w_direction} **{y_label}**. *(Currently held at {w_label}={w_hold:.1f} for visualization)*"
+
+                coef_text += f"""
+**{w_label} Effect (β = {b_cont3:.1f}):** {w_interp}
+"""
+        else:
+            # Two continuous predictors mode - simpler interpretation
+            # Intercept interpretation
+            intercept_interp = f"When **{x_label}**=0 and **{z_label}**=0, the predicted **{y_label}** is **{intercept:.1f}**."
+
+            # Slope (β₁) interpretation
+            if slope > 0:
+                x_direction = "higher"
+            elif slope < 0:
+                x_direction = "lower"
+            else:
+                x_direction = "unchanged"
+
+            if slope != 0:
+                slope_interp = f"Holding **{z_label}** constant, a 1-unit increase in **{x_term or x_label}** corresponds to a **{abs(slope):.1f}**-unit {x_direction} **{y_label}**."
+            else:
+                slope_interp = f"**{x_label}** has no effect on **{y_label}** (holding {z_label} constant)."
+
+            # Second predictor (β₂) interpretation
+            if b_cont2 > 0:
+                z_direction = "higher"
+            elif b_cont2 < 0:
+                z_direction = "lower"
+            else:
+                z_direction = "unchanged"
+
+            if b_cont2 != 0:
+                z_interp = f"Holding **{x_label}** constant, a 1-unit increase in **{z_label}** corresponds to a **{abs(b_cont2):.1f}**-unit {z_direction} **{y_label}**. *(Currently held at {z_label}={z_hold:.1f} for visualization)*"
+            else:
+                z_interp = f"**{z_label}** has no effect on **{y_label}** (holding {x_label} constant)."
+
+            coef_text = f"""### Coefficient Interpretation (Two Continuous Predictors, RAOS Style)
+
+**Intercept (β₀ = {intercept:.1f}):** {intercept_interp}
+
+**Slope of {x_term or x_label} (β₁ = {slope:.1f}):** {slope_interp}
+
+**{z_label} Effect (β₂ = {b_cont2:.1f}):** {z_interp}
+"""
+
+    elif is_binary:
         # Binary/dummy variable interpretation
         intercept_interp = f"The mean of **{y_label}** for **{g0_label}** (when {x_label}=0) is **{intercept:.1f}**."
 
@@ -277,7 +519,7 @@ def _(g0_label, g1_label, intercept, is_binary, mo, slope, transform, x_label, x
 
 
 @app.cell
-def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, stats, transform, x_label, x_term, y_label):
+def _(b_cont2, b_cont3, b_group, b_interaction, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, show_variance, slope, stats, transform, w_hold, w_label, x_label, x_term, y_label, z_hold, z_label):
     # Fixed axis ranges
     Y_MIN, Y_MAX = -15, 15
 
@@ -287,7 +529,175 @@ def _(ci_level, g0_label, g1_label, go, intercept, is_binary, is_binned, mo, n_b
     # Create figure
     fig = go.Figure()
 
-    if is_binned:
+    if is_multiple:
+        # Multiple regression mode
+        if transform == "Log (ln x)":
+            X_MIN, X_MAX = 0.1, 10
+        else:
+            X_MIN, X_MAX = 0, 10
+
+        # Generate data
+        x_data_raw = np.random.uniform(X_MIN, X_MAX, n)
+
+        # Apply transformation to x for the model
+        if transform == "Square Root (√x)":
+            x_data_transformed = np.sqrt(x_data_raw)
+        elif transform == "Square (x²)":
+            x_data_transformed = x_data_raw ** 2
+        elif transform == "Log (ln x)":
+            x_data_transformed = np.log(x_data_raw)
+        elif transform == "Constant (no x)":
+            x_data_transformed = np.zeros_like(x_data_raw)
+        else:
+            x_data_transformed = x_data_raw
+
+        # Transform x_line for regression curve
+        x_line = np.linspace(X_MIN, X_MAX, 100)
+        if transform == "Square Root (√x)":
+            x_line_transformed = np.sqrt(x_line)
+        elif transform == "Square (x²)":
+            x_line_transformed = x_line ** 2
+        elif transform == "Log (ln x)":
+            x_line_transformed = np.log(x_line)
+        elif transform == "Constant (no x)":
+            x_line_transformed = np.zeros_like(x_line)
+        else:
+            x_line_transformed = x_line
+
+        if has_grouping:
+            # Grouping variable mode: y = β₀ + β₁x + β₂Group + β₃(x×Group) + β₄w
+            group_data = np.random.binomial(1, 0.5, n)  # Random group assignment
+
+            # Generate third continuous predictor if enabled
+            if has_cont3:
+                w_data = np.random.uniform(0, 10, n)
+            else:
+                w_data = np.zeros(n)
+
+            # True DGP
+            y_data = (intercept
+                      + slope * x_data_transformed
+                      + b_group * group_data
+                      + (b_interaction * x_data_transformed * group_data if has_interaction else 0)
+                      + (b_cont3 * w_data if has_cont3 else 0)
+                      + np.random.normal(0, noise_slider.value, n))
+
+            # Colors for groups
+            group_colors = ["#636EFA", "#EF553B"]  # Blue for group 0, red for group 1
+            group_labels_list = [g0_multi_label, g1_multi_label]
+
+            # Plot points colored by group
+            for g in [0, 1]:
+                mask = group_data == g
+                fig.add_trace(go.Scatter(
+                    x=x_data_raw[mask],
+                    y=y_data[mask],
+                    mode="markers",
+                    name=group_labels_list[g],
+                    marker=dict(color=group_colors[g], size=8, opacity=0.6),
+                ))
+
+            # w held at specified value for visualization
+            w_held = w_hold if has_cont3 else 0
+
+            # Plot regression lines for each group
+            for g in [0, 1]:
+                if has_interaction:
+                    y_line = (intercept
+                              + slope * x_line_transformed
+                              + b_group * g
+                              + b_interaction * x_line_transformed * g
+                              + b_cont3 * w_held)
+                else:
+                    y_line = (intercept
+                              + slope * x_line_transformed
+                              + b_group * g
+                              + b_cont3 * w_held)
+
+                line_name = f"{group_labels_list[g]} fit"
+                if has_interaction:
+                    line_name += f" (slope={slope + b_interaction * g:.1f})"
+
+                fig.add_trace(go.Scatter(
+                    x=x_line,
+                    y=y_line,
+                    mode="lines",
+                    name=line_name,
+                    line=dict(color=group_colors[g], width=3),
+                ))
+
+            # Layout for grouping mode
+            x_axis_title = x_label
+            if has_cont3:
+                x_axis_title += f" ({w_label} held at {w_held:.1f})"
+
+        else:
+            # Two continuous predictors mode: y = β₀ + β₁x + β₂z
+            z_data = np.random.uniform(0, 10, n)
+
+            # True DGP
+            y_data = (intercept
+                      + slope * x_data_transformed
+                      + b_cont2 * z_data
+                      + np.random.normal(0, noise_slider.value, n))
+
+            # z held at specified value for visualization
+            z_held = z_hold
+
+            # Plot points (all same color, no grouping)
+            fig.add_trace(go.Scatter(
+                x=x_data_raw,
+                y=y_data,
+                mode="markers",
+                name="Data Points",
+                marker=dict(color="#636EFA", size=8, opacity=0.6),
+            ))
+
+            # Plot regression line at held z value
+            y_line = intercept + slope * x_line_transformed + b_cont2 * z_held
+
+            fig.add_trace(go.Scatter(
+                x=x_line,
+                y=y_line,
+                mode="lines",
+                name=f"Regression Line ({z_label}={z_held:.1f})",
+                line=dict(color="#EF553B", width=3),
+            ))
+
+            # Layout for two continuous mode
+            x_axis_title = f"{x_label} ({z_label} held at {z_held:.1f})"
+
+        fig.update_layout(
+            template="plotly_white",
+            height=600,
+            xaxis=dict(
+                title=x_axis_title,
+                range=[X_MIN - 0.5, X_MAX + 0.5],
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+            ),
+            yaxis=dict(
+                title=y_label,
+                range=[Y_MIN, Y_MAX],
+                dtick=5,
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="bottom",
+                y=1.02,
+                xanchor="right",
+                x=1
+            ),
+            margin=dict(t=50, b=50, l=50, r=50),
+        )
+
+    elif is_binned:
         # Binned mode: Generate continuous data then bin it
         X_MIN, X_MAX = 0, 10
         n_bins = n_bins_slider.value
