@@ -329,7 +329,7 @@ def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_multiple, mo, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_binned, is_multiple, mo, n_bins_slider, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
     x_label = "x" if is_binary else (x_name.value or "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
@@ -420,6 +420,16 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     elif is_binary:
         equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}"
         equation_subtitle = f"where {x_label} = 0 for {g0_label}, 1 for {g1_label}"
+    elif is_binned:
+        # Binned/categorical model: y = β₀ + β₁(Bin2) + β₂(Bin3) + ...
+        n_bins = n_bins_slider.value
+        eq_parts = ["β₀"]
+        bin_explanations = []
+        for i in range(2, n_bins + 1):
+            eq_parts.append(f"β{i-1}(Bin{i})")
+            bin_explanations.append(f"Bin{i}=1 if in bin {i}, 0 otherwise")
+        equation = f"{y_label} = " + " + ".join(eq_parts)
+        equation_subtitle = f"Bin1 is reference; " + "; ".join(bin_explanations)
     elif x_term is None:
         equation = f"{y_label} = {intercept:.1f}"
         equation_subtitle = "constant model, no predictor"
