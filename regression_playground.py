@@ -37,6 +37,7 @@ def _(mo):
             "Basic Linear Regression",
             "Binary (Means Comparison)",
             "Binned (Categorized)",
+            "Logistic Regression",
             "Multivariable: Categorical",
             "Multivariable: Continuous",
         ],
@@ -46,7 +47,8 @@ def _(mo):
         start=2, stop=10, step=1, value=3, label="Number of Bins"
     )
     x_transform = mo.ui.dropdown(
-        options=["None (x)", "Square Root (√x)", "Square (x²)", "Log (ln x)", "Constant (no x)"],
+        options=["None (x)", "Center (x - mean)", "Standardize (z-score)", "Min-Max (0-1)",
+                 "Square Root (√x)", "Square (x²)", "Log (ln x)", "Constant (no x)"],
         value="None (x)",
         label="X Transformation:"
     )
@@ -108,6 +110,7 @@ def _(mo, model_type, n_bins_slider):
     is_continuous = model_type.value == "Basic Linear Regression"
     is_multiple = model_type.value.startswith("Multivariable:")
     has_grouping = model_type.value == "Multivariable: Categorical"
+    is_logistic = model_type.value == "Logistic Regression"
 
     # Show appropriate controls based on model type
     items = [model_type]
@@ -115,7 +118,7 @@ def _(mo, model_type, n_bins_slider):
         items.append(n_bins_slider)
     _display = mo.vstack(items, gap=1)
     _display
-    return has_grouping, is_binned, is_continuous, is_multiple
+    return has_grouping, is_binned, is_continuous, is_logistic, is_multiple
 
 
 @app.cell
@@ -193,7 +196,7 @@ def _(mo):
 
 
 @app.cell
-def _(add_continuous3, dist_type, has_grouping, is_binary, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, z_max, z_mean, z_min, z_sd):
+def _(add_continuous3, dist_type, has_grouping, is_binary, is_logistic, is_multiple, mo, n_points_slider, noise_slider, seed_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, z_max, z_mean, z_min, z_sd):
     _rows = [
         mo.hstack([n_points_slider, seed_slider], justify="start", gap=4),
     ]
@@ -213,7 +216,7 @@ def _(add_continuous3, dist_type, has_grouping, is_binary, is_multiple, mo, n_po
                 if _is_normal:
                     _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
         else:
-            # Basic, Binned, or Categorical mode: just x (+ optional w for categorical)
+            # Basic, Binned, Logistic, or Categorical mode: just x (+ optional w for categorical)
             _rows.append(mo.hstack([x_min, x_max], justify="start", gap=4))
             if _is_normal:
                 _rows.append(mo.hstack([x_mean, x_sd], justify="start", gap=4))
@@ -222,8 +225,9 @@ def _(add_continuous3, dist_type, has_grouping, is_binary, is_multiple, mo, n_po
                 if _is_normal:
                     _rows.append(mo.hstack([w_mean, w_sd], justify="start", gap=4))
 
-    # Error SD
-    _rows.append(noise_slider)
+    # Error SD (not applicable for logistic regression)
+    if not is_logistic:
+        _rows.append(noise_slider)
 
     mo.vstack(_rows, gap=2)
     return
@@ -236,15 +240,40 @@ def _(mo):
 
 
 @app.cell
-def _(is_binary, mo):
+def _(is_binary, is_logistic, mo):
+    if is_logistic:
+        _slope_label = "Log-odds change per unit x (β₁)"
+        _intercept_label = "Log-odds at x=0 (β₀)"
+    elif is_binary:
+        _slope_label = "Group Difference (β₁)"
+        _intercept_label = "Group 0 Mean (β₀)"
+    else:
+        _slope_label = "Slope (β₁)"
+        _intercept_label = "Intercept (β₀)"
+
+    # For logistic regression with x in [0, 50]:
+    # - β₁ (slope): ±0.25 covers gentle to steep sigmoids
+    #   - β₁ = 0.12 gives full S-curve (5% to 95%) across x range
+    #   - β₁ = 0.25 gives very steep transition
+    # - β₀ (intercept): -6 to +6 covers P(x=0) from ~0.2% to ~99.8%
+    #   - β₀ = -3 with β₁ = 0.12 gives nice centered S-curve
+    _slope_start = -0.25 if is_logistic else -25
+    _slope_stop = 0.25 if is_logistic else 25
+    _slope_step = 0.01 if is_logistic else 0.1
+    _slope_default = 0.12 if is_logistic else 1.0
     slope_slider = mo.ui.slider(
-        start=-25, stop=25, step=0.1, value=1.0,
-        label="Slope (β₁)" if not is_binary else "Group Difference (β₁)",
+        start=_slope_start, stop=_slope_stop, step=_slope_step, value=_slope_default,
+        label=_slope_label,
         show_value=True
     )
+    # For logistic, intercept is log-odds which can be negative
+    _intercept_start = -6 if is_logistic else 0
+    _intercept_stop = 6 if is_logistic else 50
+    _intercept_step = 0.1 if is_logistic else 0.5
+    _intercept_default = -3.0 if is_logistic else 0.0
     intercept_slider = mo.ui.slider(
-        start=0, stop=50, step=0.5, value=0.0,
-        label="Intercept (β₀)" if not is_binary else "Group 0 Mean (β₀)",
+        start=_intercept_start, stop=_intercept_stop, step=_intercept_step, value=_intercept_default,
+        label=_intercept_label,
         show_value=True
     )
     return intercept_slider, slope_slider
@@ -308,20 +337,22 @@ def _(mo):
 
 
 @app.cell
-def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
+def _(ci_level, is_logistic, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
     _items = []
 
-    _items.append(show_sd)
-    if show_sd.value:
-        _items.append(sd_multiplier)
+    if not is_logistic:
+        _items.append(show_sd)
+        if show_sd.value:
+            _items.append(sd_multiplier)
 
     _items.append(show_ci)
     if show_ci.value:
         _items.append(ci_level)
 
-    _items.append(show_pi)
-    if show_pi.value:
-        _items.append(pi_level)
+    if not is_logistic:
+        _items.append(show_pi)
+        if show_pi.value:
+            _items.append(pi_level)
 
     _display = mo.vstack(_items, gap=0)
     _display
@@ -329,7 +360,7 @@ def _(ci_level, mo, pi_level, sd_multiplier, show_ci, show_pi, show_sd):
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_binned, is_multiple, mo, n_bins_slider, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_binned, is_logistic, is_multiple, mo, n_bins_slider, np, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
     x_label = "x" if is_binary else (x_name.value or "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
@@ -387,7 +418,13 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     w_sigma = _w_sd_val
 
     # Get transformed x label for equation
-    if transform == "Square Root (√x)":
+    if transform == "Center (x - mean)":
+        x_term = f"({x_label} - x̄)"
+    elif transform == "Standardize (z-score)":
+        x_term = f"z_{x_label}"
+    elif transform == "Min-Max (0-1)":
+        x_term = f"{x_label}_scaled"
+    elif transform == "Square Root (√x)":
         x_term = f"√{x_label}"
     elif transform == "Square (x²)":
         x_term = f"{x_label}²"
@@ -420,6 +457,11 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     elif is_binary:
         equation = f"{y_label} = {intercept:.1f} + {slope:.1f} × {x_label}"
         equation_subtitle = f"where {x_label} = 0 for {g0_label}, 1 for {g1_label}"
+    elif is_logistic:
+        _odds_ratio = np.exp(slope)
+        _prob_at_zero = 1 / (1 + np.exp(-intercept))
+        equation = f"log(odds) = **{intercept:.2f}** + **{slope:.2f}** × {x_label}"
+        equation_subtitle = f"Odds Ratio = e^{slope:.2f} = **{_odds_ratio:.3f}** — P({y_label}=1|{x_label}=0) = **{_prob_at_zero:.2f}**"
     elif is_binned:
         # Binned/categorical model: y = β₀ + β₁(Bin2) + β₂(Bin3) + ...
         _n_bins = n_bins_slider.value
@@ -442,12 +484,45 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
         equation_output = mo.md(f"**Model Equation:** {equation} *({equation_subtitle})*")
     else:
         equation_output = mo.md(f"**Model Equation:** {equation}")
-    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, slope, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_term, y_label, z_hi, z_hold, z_label, z_lo
+    return b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, equation_output, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_interaction, has_interaction_cont, intercept, is_uniform, slope, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_mu, x_sigma, x_term, y_label, z_hi, z_hold, z_label, z_lo
 
 
 @app.cell
-def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_multiple, mo, slope, transform, w_hold, w_label, x_label, x_term, y_label, z_hold, z_label):
-    if is_multiple:
+def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0_multi_label, g1_label, g1_multi_label, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_logistic, is_multiple, mo, np, slope, transform, w_hold, w_label, x_label, x_term, y_label, z_hold, z_label):
+    if is_logistic:
+        # Logistic regression interpretation with odds ratio
+        _prob_at_zero = 1 / (1 + np.exp(-intercept))
+        _odds_ratio = np.exp(slope)
+
+        intercept_interp = f"When **{x_label}**=0, the log-odds of {y_label}=1 is **{intercept:.2f}**, corresponding to a probability of **{_prob_at_zero:.3f}**."
+
+        if slope > 0:
+            direction = "increase"
+            odds_direction = "multiply"
+        elif slope < 0:
+            direction = "decrease"
+            odds_direction = "divide"
+        else:
+            direction = "no change in"
+            odds_direction = "unchanged"
+
+        if slope != 0:
+            slope_interp = f"For each 1-unit increase in **{x_label}**, the log-odds {direction} by **{abs(slope):.2f}**. **Odds ratio = {_odds_ratio:.3f}**: the odds {odds_direction} by this factor."
+        else:
+            slope_interp = f"**{x_label}** has no effect on the probability of {y_label}=1 (odds ratio = 1)."
+
+        coef_text = f"""### Coefficient Interpretation (Logistic Regression)
+
+**Intercept (β₀ = {intercept:.2f}):** {intercept_interp}
+
+**Slope (β₁ = {slope:.2f}):** {slope_interp}
+
+**Odds Ratio Interpretation:**
+- OR > 1: higher {x_label} → higher odds of {y_label}=1
+- OR < 1: higher {x_label} → lower odds of {y_label}=1
+- OR = 1: {x_label} has no effect
+"""
+    elif is_multiple:
         if has_grouping:
             # Grouping variable mode - RAOS-style interpretation
             # Intercept interpretation
@@ -649,7 +724,25 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 """
     else:
         # Continuous variable interpretation with transformations
-        if transform == "Square Root (√x)":
+        if transform == "Center (x - mean)":
+            intercept_interp = f"When **{x_label}** equals its mean (x̄), the predicted value of **{y_label}** is **{intercept:.1f}**. (Centering shifts the intercept to the mean of x.)"
+            if slope != 0:
+                slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** changes by **{slope:.1f}** units. (Same as uncentered; centering only changes the intercept.)"
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+        elif transform == "Standardize (z-score)":
+            intercept_interp = f"When **{x_label}** equals its mean (z=0), the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope != 0:
+                slope_interp = f"For every **1 standard deviation** increase in **{x_label}**, **{y_label}** changes by **{slope:.1f}** units. (Standardized coefficient allows comparison across different scales.)"
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+        elif transform == "Min-Max (0-1)":
+            intercept_interp = f"When **{x_label}** is at its minimum (scaled=0), the predicted value of **{y_label}** is **{intercept:.1f}**."
+            if slope != 0:
+                slope_interp = f"Moving from the **minimum to maximum** of **{x_label}** (0→1 in scaled units), **{y_label}** changes by **{slope:.1f}** units total."
+            else:
+                slope_interp = f"Changes in **{x_label}** have no effect on **{y_label}** (slope is 0)."
+        elif transform == "Square Root (√x)":
             intercept_interp = f"When **{x_label}** equals 0 (so √{x_label}=0), the predicted value of **{y_label}** is **{intercept:.1f}**."
             if slope != 0:
                 slope_interp = f"For every 1-unit increase in **√{x_label}**, **{y_label}** changes by **{slope:.1f}** units. (Note: the effect on {y_label} per unit of raw {x_label} decreases as {x_label} increases.)"
@@ -692,7 +785,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 
 
 @app.cell
-def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_multiple, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_term, y_label, z_hi, z_hold, z_label, z_lo):
+def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_logistic, is_multiple, is_uniform, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_mu, x_sigma, x_term, y_label, z_hi, z_hold, z_label, z_lo):
     # Fixed axis ranges
     Y_MIN, Y_MAX = 0, 50
 
@@ -714,7 +807,19 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             x_data_raw = np.abs(x_data_raw) + 0.1
 
         # Apply transformation to x for the model
-        if transform == "Square Root (√x)":
+        # Store statistics for scaling transforms (needed for line transform too)
+        _x_mean_raw = np.mean(x_data_raw)
+        _x_std_raw = np.std(x_data_raw)
+        _x_min_raw = np.min(x_data_raw)
+        _x_max_raw = np.max(x_data_raw)
+
+        if transform == "Center (x - mean)":
+            x_data_transformed = x_data_raw - _x_mean_raw
+        elif transform == "Standardize (z-score)":
+            x_data_transformed = (x_data_raw - _x_mean_raw) / _x_std_raw
+        elif transform == "Min-Max (0-1)":
+            x_data_transformed = (x_data_raw - _x_min_raw) / (_x_max_raw - _x_min_raw)
+        elif transform == "Square Root (√x)":
             x_data_raw = np.abs(x_data_raw)  # Ensure non-negative for sqrt
             x_data_transformed = np.sqrt(x_data_raw)
         elif transform == "Square (x²)":
@@ -732,7 +837,13 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         if transform == "Log (ln x)" or transform == "Square Root (√x)":
             X_MIN = max(0.1, X_MIN)
         x_line = np.linspace(0, 50, 100)
-        if transform == "Square Root (√x)":
+        if transform == "Center (x - mean)":
+            x_line_transformed = x_line - _x_mean_raw
+        elif transform == "Standardize (z-score)":
+            x_line_transformed = (x_line - _x_mean_raw) / _x_std_raw
+        elif transform == "Min-Max (0-1)":
+            x_line_transformed = (x_line - _x_min_raw) / (_x_max_raw - _x_min_raw)
+        elif transform == "Square Root (√x)":
             x_line_transformed = np.sqrt(np.maximum(x_line, 0))
         elif transform == "Square (x²)":
             x_line_transformed = x_line ** 2
@@ -1174,6 +1285,195 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             margin=dict(t=50, b=50, l=50, r=50),
         )
 
+    elif is_logistic:
+        # Logistic regression mode: Binary outcome (0/1)
+        # Generate x from selected distribution
+        if is_uniform:
+            x_data = np.random.uniform(x_lo, x_hi, n)
+        else:
+            x_data = np.clip(np.random.normal(x_mu, x_sigma, n), x_lo, x_hi)
+
+        # Compute linear predictor and probability
+        _z = intercept + slope * x_data
+        _prob = 1 / (1 + np.exp(-_z))
+
+        # Generate binary outcomes from Bernoulli(prob)
+        y_data = np.random.binomial(1, _prob)
+
+        # Add jitter to y for visualization (0s and 1s would overlap)
+        _jitter_amount = 0.03
+        y_jittered = y_data + np.random.uniform(-_jitter_amount, _jitter_amount, n)
+
+        # Plot data points colored by outcome
+        _colors = np.where(y_data == 1, "#EF553B", "#636EFA")
+        fig.add_trace(
+            go.Scatter(
+                x=x_data,
+                y=y_jittered,
+                mode="markers",
+                name="Data",
+                marker=dict(color=_colors, size=8, opacity=0.6),
+                showlegend=False,
+            )
+        )
+
+        # Add legend entries for outcomes
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None], mode="markers",
+                name=f"{y_label}=0",
+                marker=dict(color="#636EFA", size=8),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None], mode="markers",
+                name=f"{y_label}=1",
+                marker=dict(color="#EF553B", size=8),
+            )
+        )
+
+        # MLE fitting for logistic regression
+        x_line = np.linspace(0, 50, 200)
+        from scipy.optimize import minimize
+
+        def _neg_log_likelihood(betas, X, y):
+            z = betas[0] + betas[1] * X
+            p = 1 / (1 + np.exp(-z))
+            p = np.clip(p, 1e-10, 1 - 1e-10)  # numerical stability
+            return -np.sum(y * np.log(p) + (1 - y) * np.log(1 - p))
+
+        # Fit model using MLE
+        _mle_result = minimize(_neg_log_likelihood, x0=[0, 0], args=(x_data, y_data), method='BFGS')
+        _mle_intercept = _mle_result.x[0]
+        _mle_slope = _mle_result.x[1]
+
+        # Compute Hessian numerically for standard errors
+        def _hessian_logistic(betas, X, y):
+            z = betas[0] + betas[1] * X
+            p = 1 / (1 + np.exp(-z))
+            p = np.clip(p, 1e-10, 1 - 1e-10)
+            w = p * (1 - p)
+            # Hessian of negative log-likelihood
+            H00 = np.sum(w)
+            H01 = np.sum(w * X)
+            H11 = np.sum(w * X**2)
+            return np.array([[H00, H01], [H01, H11]])
+
+        _hessian = _hessian_logistic(_mle_result.x, x_data, y_data)
+        try:
+            _cov_matrix = np.linalg.inv(_hessian)
+            _se_intercept = np.sqrt(_cov_matrix[0, 0])
+            _se_slope = np.sqrt(_cov_matrix[1, 1])
+        except:
+            _cov_matrix = None
+            _se_intercept = np.nan
+            _se_slope = np.nan
+
+        # Compute deviances and AIC
+        # Null model (intercept only)
+        _null_result = minimize(lambda b: -np.sum(y_data * np.log(np.clip(1/(1+np.exp(-b[0])), 1e-10, 1-1e-10)) +
+                                                   (1-y_data) * np.log(np.clip(1-1/(1+np.exp(-b[0])), 1e-10, 1-1e-10))),
+                                 x0=[0], method='BFGS')
+        _null_deviance = 2 * _neg_log_likelihood([_null_result.x[0], 0], x_data, y_data)
+        _residual_deviance = 2 * _neg_log_likelihood(_mle_result.x, x_data, y_data)
+        _aic = _residual_deviance + 2 * 2  # 2 parameters
+
+        # McFadden's pseudo-R²
+        _pseudo_r2 = 1 - (_residual_deviance / _null_deviance) if _null_deviance > 0 else 0
+
+        # Plot MLE fitted curve
+        _mle_z_line = _mle_intercept + _mle_slope * x_line
+        _mle_prob_line = 1 / (1 + np.exp(-_mle_z_line))
+        fig.add_trace(
+            go.Scatter(
+                x=x_line,
+                y=_mle_prob_line,
+                mode="lines",
+                name="Fitted P(Y=1)",
+                line=dict(color="black", width=3),
+            )
+        )
+
+        # Add CI band if selected (uses delta method on log-odds scale)
+        if show_ci.value and _cov_matrix is not None:
+            z_crit = stats.norm.ppf((1 + ci_level.value) / 2)
+
+            # Variance of linear predictor: Var(β₀ + β₁x) = Var(β₀) + 2x·Cov(β₀,β₁) + x²·Var(β₁)
+            _var_z = np.array([
+                _cov_matrix[0,0] + 2*x*_cov_matrix[0,1] + x**2*_cov_matrix[1,1]
+                for x in x_line
+            ])
+            _se_z = np.sqrt(_var_z)
+
+            # CI on log-odds scale
+            _z_lower = _mle_z_line - z_crit * _se_z
+            _z_upper = _mle_z_line + z_crit * _se_z
+
+            # Transform to probability scale (ensures CI stays within [0,1])
+            _prob_lower = 1 / (1 + np.exp(-_z_lower))
+            _prob_upper = 1 / (1 + np.exp(-_z_upper))
+
+            # Add CI band
+            fig.add_trace(
+                go.Scatter(
+                    x=np.concatenate([x_line, x_line[::-1]]),
+                    y=np.concatenate([_prob_upper, _prob_lower[::-1]]),
+                    fill='toself',
+                    fillcolor='rgba(0,0,0,0.15)',
+                    line=dict(color='rgba(0,0,0,0)'),
+                    name=f'{int(ci_level.value*100)}% CI',
+                    showlegend=True,
+                )
+            )
+
+        # Store for reg_stats
+        _ols_intercept = _mle_intercept  # Using MLE as "OLS" for compatibility
+        _ols_slope = _mle_slope
+        _ols_y_pred = 1 / (1 + np.exp(-(_mle_intercept + _mle_slope * x_data)))
+        _ols_residuals = y_data - _ols_y_pred  # Pearson residuals
+        df = n - 2
+        mse = np.sum(_ols_residuals**2) / df if df > 0 else 0
+        se = np.sqrt(mse)
+        ss_x = np.sum((x_data - np.mean(x_data))**2)
+        _x_mean = np.mean(x_data)
+
+        # Layout for logistic regression
+        fig.update_layout(
+            template="plotly_white",
+            width=600,
+            height=600,
+            dragmode=False,
+            title="Logistic Regression Plot",
+            xaxis=dict(
+                title=x_label,
+                range=[0, 50],
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                title=f"P({y_label}=1)",
+                range=[-0.1, 1.1],
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+                fixedrange=True,
+                tickvals=[0, 0.25, 0.5, 0.75, 1],
+            ),
+            legend=dict(
+                orientation="h",
+                yanchor="top",
+                y=-0.15,
+                xanchor="center",
+                x=0.5
+            ),
+            margin=dict(t=50, b=80, l=50, r=50),
+        )
+
     elif is_binary:
         # Binary mode: Generate two groups
         n_per_group = n // 2
@@ -1357,7 +1657,19 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
             X_MIN = max(0.1, X_MIN)
 
         # Apply transformation to x for the model
-        if transform == "Square Root (√x)":
+        # Store statistics for scaling transforms
+        _x_mean_raw = np.mean(x_data_raw)
+        _x_std_raw = np.std(x_data_raw)
+        _x_min_raw = np.min(x_data_raw)
+        _x_max_raw = np.max(x_data_raw)
+
+        if transform == "Center (x - mean)":
+            x_data_transformed = x_data_raw - _x_mean_raw
+        elif transform == "Standardize (z-score)":
+            x_data_transformed = (x_data_raw - _x_mean_raw) / _x_std_raw
+        elif transform == "Min-Max (0-1)":
+            x_data_transformed = (x_data_raw - _x_min_raw) / (_x_max_raw - _x_min_raw)
+        elif transform == "Square Root (√x)":
             x_data_transformed = np.sqrt(x_data_raw)
         elif transform == "Square (x²)":
             x_data_transformed = x_data_raw ** 2
@@ -1374,7 +1686,13 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         # For plotting the regression curve
         x_line_smooth = np.linspace(0, 50, 100)
 
-        if transform == "Square Root (√x)":
+        if transform == "Center (x - mean)":
+            x_line_transformed = x_line_smooth - _x_mean_raw
+        elif transform == "Standardize (z-score)":
+            x_line_transformed = (x_line_smooth - _x_mean_raw) / _x_std_raw
+        elif transform == "Min-Max (0-1)":
+            x_line_transformed = (x_line_smooth - _x_min_raw) / (_x_max_raw - _x_min_raw)
+        elif transform == "Square Root (√x)":
             x_line_transformed = np.sqrt(x_line_smooth)
         elif transform == "Square (x²)":
             x_line_transformed = x_line_smooth ** 2
@@ -1578,7 +1896,19 @@ To visualize a subset of the relationship, disable the 3rd predictor checkbox.
             "is_binned": is_binned,
             "is_multiple": False,
         }
-        if is_binary:
+        if is_logistic:
+            reg_stats["x_data"] = x_data
+            reg_stats["ols_slope"] = _ols_slope
+            reg_stats["is_logistic"] = True
+            reg_stats["mle_intercept"] = _mle_intercept
+            reg_stats["mle_slope"] = _mle_slope
+            reg_stats["se_intercept"] = _se_intercept
+            reg_stats["se_slope"] = _se_slope
+            reg_stats["null_deviance"] = _null_deviance
+            reg_stats["residual_deviance"] = _residual_deviance
+            reg_stats["aic"] = _aic
+            reg_stats["pseudo_r2"] = _pseudo_r2
+        elif is_binary:
             reg_stats["x_data"] = x_data
             reg_stats["ols_slope"] = _ols_slope
             reg_stats["g0_label"] = g0_label
@@ -1630,6 +1960,7 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         # Use the original coef_text (which uses TRUE/slider values) for non-basic modes
         _coef_text_final = coef_text
         _resid_plot = None
+        _is_logistic = False
     else:
         # Extract actual OLS regression results from the plotting cell
         _n = reg_stats["n"]
@@ -1640,6 +1971,7 @@ def _(coef_text, equation_output, go, intercept, mo, np, plot_output, reg_stats,
         _ols_intercept = reg_stats["ols_intercept"]
         _is_binned = reg_stats.get("is_binned", False)
         _is_multiple = reg_stats.get("is_multiple", False)
+        _is_logistic = reg_stats.get("is_logistic", False)
 
         # Significance stars helper
         def _sig_stars(p):
@@ -1713,6 +2045,81 @@ p-value: {_f_pval:.2e}
 **Model Fit:**
 - **Residual SE (σ̂) = {_se:.3f}** — the standard deviation of residuals
 - **R² = {_r_squared:.3f}** — {_r_squared*100:.1f}% of variance in {y_label} is explained
+
+*(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
+"""
+
+        elif _is_logistic:
+            # Logistic regression - MLE summary with R glm() style output
+            _mle_intercept = reg_stats["mle_intercept"]
+            _mle_slope = reg_stats["mle_slope"]
+            _se_intercept = reg_stats["se_intercept"]
+            _se_slope = reg_stats["se_slope"]
+            _null_deviance = reg_stats["null_deviance"]
+            _residual_deviance = reg_stats["residual_deviance"]
+            _aic = reg_stats["aic"]
+            _pseudo_r2 = reg_stats["pseudo_r2"]
+
+            # z-values (using normal distribution, not t)
+            _z_intercept = _mle_intercept / _se_intercept if _se_intercept > 0 and not np.isnan(_se_intercept) else 0
+            _z_slope = _mle_slope / _se_slope if _se_slope > 0 and not np.isnan(_se_slope) else 0
+
+            # p-values (two-tailed, normal distribution)
+            _p_intercept = 2 * (1 - stats.norm.cdf(abs(_z_intercept)))
+            _p_slope = 2 * (1 - stats.norm.cdf(abs(_z_slope)))
+
+            # Odds ratio
+            _odds_ratio = np.exp(_mle_slope)
+
+            _r_summary = f"""### Regression Summary (MLE on simulated data)
+```
+Coefficients:
+              Estimate Std.Err z value  Pr(>|z|)
+(Intercept)   {_mle_intercept:8.3f} {_se_intercept:7.3f} {_z_intercept:7.2f}  {_p_intercept:.2e} {_sig_stars(_p_intercept)}
+{x_label:13s} {_mle_slope:8.3f} {_se_slope:7.3f} {_z_slope:7.2f}  {_p_slope:.2e} {_sig_stars(_p_slope)}
+---
+Signif: 0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1
+
+(Dispersion parameter for binomial family taken to be 1)
+
+Null deviance: {_null_deviance:.2f} on {_n - 1} df
+Residual deviance: {_residual_deviance:.2f} on {_n - 2} df
+AIC: {_aic:.2f}
+
+Odds Ratio for {x_label}: {_odds_ratio:.3f}
+McFadden's Pseudo-R²: {_pseudo_r2:.4f}
+```
+"""
+            # Logistic coefficient interpretation using MLE estimates
+            _prob_at_zero = 1 / (1 + np.exp(-_mle_intercept))
+
+            if _mle_slope > 0:
+                _direction = "increase"
+                _odds_direction = "multiply"
+            elif _mle_slope < 0:
+                _direction = "decrease"
+                _odds_direction = "divide"
+            else:
+                _direction = "no change in"
+                _odds_direction = "unchanged"
+
+            _coef_text_final = f"""### Coefficient Interpretation (MLE Estimates)
+
+**Intercept (β₀ = {_mle_intercept:.3f}):**
+When **{x_label}**=0, the log-odds of {y_label}=1 is **{_mle_intercept:.3f}**, corresponding to a probability of **{_prob_at_zero:.3f}**.
+
+**Slope (β₁ = {_mle_slope:.3f}):**
+For each 1-unit increase in **{x_label}**, the log-odds {_direction} by **{abs(_mle_slope):.3f}**.
+**Odds ratio = {_odds_ratio:.3f}**: the odds {_odds_direction} by this factor.
+
+**Odds Ratio Interpretation:**
+- OR > 1: higher {x_label} → higher odds of {y_label}=1
+- OR < 1: higher {x_label} → lower odds of {y_label}=1
+- OR = 1: {x_label} has no effect
+
+**Model Fit:**
+- **Pseudo-R² = {_pseudo_r2:.3f}** — McFadden's measure of explained variation
+- **AIC = {_aic:.1f}** — lower is better for model comparison
 
 *(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
 """
@@ -1821,8 +2228,8 @@ p-value: {_f_pval:.2e}
 """
 
         # Generate coefficient interpretation using OLS ESTIMATED values (not slider TRUE values)
-        # Only for non-multiple regression modes (multiple regression has its own interpretation above)
-        if not _is_multiple:
+        # Only for non-multiple, non-logistic regression modes (they have their own interpretation above)
+        if not _is_multiple and not _is_logistic:
             # Model fit section with descriptions (same for all transforms)
             _model_fit = f"""
 **Model Fit:**
@@ -1838,6 +2245,63 @@ p-value: {_f_pval:.2e}
 
 **Intercept (β₀ = {_ols_intercept:.2f}):**
 The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardless of any predictor. This is simply the mean of {y_label}.
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
+            elif transform == "Center (x - mean)":
+                _intercept_interp = f"When **{x_label}** equals its mean (x̄), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**. (Centering shifts the intercept to the mean of x.)"
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"For every 1-unit increase in **{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. (Same as uncentered; centering only changes the intercept.)"
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):**
+{_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
+            elif transform == "Standardize (z-score)":
+                _intercept_interp = f"When **{x_label}** equals its mean (z=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"For every **1 standard deviation** increase in **{x_label}**, **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units. (Standardized coefficient allows comparison across different scales.)"
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):**
+{_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
+            elif transform == "Min-Max (0-1)":
+                _intercept_interp = f"When **{x_label}** is at its minimum (scaled=0), the predicted value of **{y_label}** is **{_ols_intercept:.2f}**."
+                if _ols_slope > 0:
+                    _direction = "increases"
+                elif _ols_slope < 0:
+                    _direction = "decreases"
+                else:
+                    _direction = "stays the same"
+                _slope_interp = f"Moving from the **minimum to maximum** of **{x_label}** (0→1 in scaled units), **{y_label}** {_direction} by **{abs(_ols_slope):.2f}** units total."
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):**
+{_intercept_interp}
+
+**Slope (β₁ = {_ols_slope:.2f}):**
+{_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
@@ -1998,44 +2462,90 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 - *t = β/SE: how many SEs the coefficient is from zero*
 {_model_fit}"""
 
-    # Create Residuals vs Fitted plot using OLS values (for all modes with reg_stats)
-    _ols_residuals = reg_stats["ols_residuals"]
-    _resid_fig = go.Figure()
+    # Create Residuals vs Fitted plot using OLS values (calibration plot for logistic)
+    if _is_logistic:
+        # Calibration plot for logistic regression
+        _pred_probs = reg_stats["ols_y_pred"]  # MLE predicted probabilities
+        _y_binary = reg_stats["y_data"]  # Actual 0/1 outcomes
 
-    # Check if we have grouping data for colored residuals
-    if reg_stats.get("is_multiple") and reg_stats.get("has_grouping") and "group_data" in reg_stats:
-        _group_data = reg_stats["group_data"]
-        _g0_label = reg_stats["g0_label"]
-        _g1_label = reg_stats["g1_label"]
-        # Add separate traces for each group with different colors
-        _mask_g0 = _group_data == 0
-        _mask_g1 = _group_data == 1
-        _resid_fig.add_trace(
+        # Bin predictions into ~10 groups
+        _n_bins = 10
+        _bin_edges = np.linspace(0, 1, _n_bins + 1)
+        _bin_centers = []
+        _observed_rates = []
+        _bin_counts = []
+
+        for _i in range(_n_bins):
+            _mask = (_pred_probs >= _bin_edges[_i]) & (_pred_probs < _bin_edges[_i+1])
+            if _i == _n_bins - 1:  # Include right edge for last bin
+                _mask = (_pred_probs >= _bin_edges[_i]) & (_pred_probs <= _bin_edges[_i+1])
+            if np.sum(_mask) > 0:
+                _bin_centers.append(np.mean(_pred_probs[_mask]))
+                _observed_rates.append(np.mean(_y_binary[_mask]))
+                _bin_counts.append(np.sum(_mask))
+
+        _calib_fig = go.Figure()
+
+        # Perfect calibration line (diagonal)
+        _calib_fig.add_trace(
             go.Scatter(
-                x=_ols_y_pred[_mask_g0],
-                y=_ols_residuals[_mask_g0],
-                mode="markers",
-                marker=dict(color="#636EFA", size=8, opacity=0.7),
-                name=_g0_label,
+                x=[0, 1], y=[0, 1],
+                mode="lines",
+                line=dict(color="gray", dash="dash", width=2),
+                name="Perfect Calibration",
             )
         )
-        _resid_fig.add_trace(
+
+        # Actual calibration points (sized by count)
+        _calib_fig.add_trace(
             go.Scatter(
-                x=_ols_y_pred[_mask_g1],
-                y=_ols_residuals[_mask_g1],
+                x=_bin_centers,
+                y=_observed_rates,
                 mode="markers",
-                marker=dict(color="#EF553B", size=8, opacity=0.7),
-                name=_g1_label,
+                marker=dict(
+                    color="#636EFA",
+                    size=[max(10, min(25, c/4)) for c in _bin_counts],
+                    opacity=0.8
+                ),
+                name="Observed Rate",
             )
         )
-    elif reg_stats.get("is_binary"):
-        # Binary mode also has grouping
-        _g0_label = reg_stats["g0_label"]
-        _g1_label = reg_stats["g1_label"]
-        _x_data = reg_stats.get("x_data")
-        if _x_data is not None:
-            _mask_g0 = _x_data == 0
-            _mask_g1 = _x_data == 1
+
+        _calib_fig.update_layout(
+            template="plotly_white",
+            width=600,
+            height=600,
+            dragmode=False,
+            title="Calibration Plot",
+            xaxis=dict(
+                title="Predicted Probability",
+                range=[0, 1],
+                tickvals=[0, 0.25, 0.5, 0.75, 1],
+                gridcolor="lightgray",
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                title="Observed Rate",
+                range=[0, 1],
+                tickvals=[0, 0.25, 0.5, 0.75, 1],
+                gridcolor="lightgray",
+                fixedrange=True,
+            ),
+            margin=dict(t=50, b=50, l=50, r=50),
+        )
+        _resid_plot = mo.ui.plotly(_calib_fig, config={"scrollZoom": False, "displayModeBar": False})
+    else:
+        _ols_residuals = reg_stats["ols_residuals"]
+        _resid_fig = go.Figure()
+
+        # Check if we have grouping data for colored residuals
+        if reg_stats.get("is_multiple") and reg_stats.get("has_grouping") and "group_data" in reg_stats:
+            _group_data = reg_stats["group_data"]
+            _g0_label = reg_stats["g0_label"]
+            _g1_label = reg_stats["g1_label"]
+            # Add separate traces for each group with different colors
+            _mask_g0 = _group_data == 0
+            _mask_g1 = _group_data == 1
             _resid_fig.add_trace(
                 go.Scatter(
                     x=_ols_y_pred[_mask_g0],
@@ -2054,7 +2564,44 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                     name=_g1_label,
                 )
             )
+        elif reg_stats.get("is_binary"):
+            # Binary mode also has grouping
+            _g0_label = reg_stats["g0_label"]
+            _g1_label = reg_stats["g1_label"]
+            _x_data = reg_stats.get("x_data")
+            if _x_data is not None:
+                _mask_g0 = _x_data == 0
+                _mask_g1 = _x_data == 1
+                _resid_fig.add_trace(
+                    go.Scatter(
+                        x=_ols_y_pred[_mask_g0],
+                        y=_ols_residuals[_mask_g0],
+                        mode="markers",
+                        marker=dict(color="#636EFA", size=8, opacity=0.7),
+                        name=_g0_label,
+                    )
+                )
+                _resid_fig.add_trace(
+                    go.Scatter(
+                        x=_ols_y_pred[_mask_g1],
+                        y=_ols_residuals[_mask_g1],
+                        mode="markers",
+                        marker=dict(color="#EF553B", size=8, opacity=0.7),
+                        name=_g1_label,
+                    )
+                )
+            else:
+                _resid_fig.add_trace(
+                    go.Scatter(
+                        x=_ols_y_pred,
+                        y=_ols_residuals,
+                        mode="markers",
+                        marker=dict(color="#636EFA", size=8, opacity=0.7),
+                        name="Residuals",
+                    )
+                )
         else:
+            # Default single-color residuals
             _resid_fig.add_trace(
                 go.Scatter(
                     x=_ols_y_pred,
@@ -2064,57 +2611,49 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
                     name="Residuals",
                 )
             )
-    else:
-        # Default single-color residuals
-        _resid_fig.add_trace(
-            go.Scatter(
-                x=_ols_y_pred,
-                y=_ols_residuals,
-                mode="markers",
-                marker=dict(color="#636EFA", size=8, opacity=0.7),
-                name="Residuals",
-            )
+        # Add horizontal line at y=0
+        _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
+        # Fixed axis ranges for residual plot
+        _resid_fig.update_layout(
+            template="plotly_white",
+            width=600,
+            height=600,
+            dragmode=False,
+            title="Residuals vs Fitted",
+            xaxis=dict(
+                title="Fitted Values (ŷ)",
+                range=[0, 50],
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+                fixedrange=True,
+            ),
+            yaxis=dict(
+                title="Residuals (y - ŷ)",
+                range=[-50, 50],
+                zeroline=True,
+                zerolinewidth=1,
+                zerolinecolor="gray",
+                gridcolor="lightgray",
+                fixedrange=True,
+            ),
+            margin=dict(t=50, b=50, l=50, r=50),
         )
-    # Add horizontal line at y=0
-    _resid_fig.add_hline(y=0, line_dash="dash", line_color="red", line_width=2)
-    # Fixed axis ranges for residual plot
-    _resid_fig.update_layout(
-        template="plotly_white",
-        width=600,
-        height=600,
-        dragmode=False,
-        title="Residuals vs Fitted",
-        xaxis=dict(
-            title="Fitted Values (ŷ)",
-            range=[0, 50],
-            zeroline=True,
-            zerolinewidth=1,
-            zerolinecolor="gray",
-            gridcolor="lightgray",
-            fixedrange=True,
-        ),
-        yaxis=dict(
-            title="Residuals (y - ŷ)",
-            range=[-50, 50],
-            zeroline=True,
-            zerolinewidth=1,
-            zerolinecolor="gray",
-            gridcolor="lightgray",
-            fixedrange=True,
-        ),
-        margin=dict(t=50, b=50, l=50, r=50),
-    )
-    _resid_plot = mo.ui.plotly(_resid_fig, config={"scrollZoom": False, "displayModeBar": False})
+        _resid_plot = mo.ui.plotly(_resid_fig, config={"scrollZoom": False, "displayModeBar": False})
 
     # Create side-by-side layout for interpretation and summary
     _left_col = mo.md(_coef_text_final)
     _right_col = mo.md(_r_summary)
     _bottom_row = mo.hstack([_left_col, _right_col], widths=[1, 1], gap=4, align="start")
 
-    # Create plots row with subtitles: regression plot | residuals vs fitted (if available)
+    # Create plots row with subtitles: regression plot | residuals/calibration plot (if available)
     if _resid_plot is not None:
         _reg_subtitle = mo.md("*Shows the relationship between predictor and outcome. Look for: linear pattern, spread of points around line.*")
-        _resid_subtitle = mo.md("*Checks model assumptions. Look for: random scatter around zero (good), patterns/funnel shapes (bad — suggests non-linearity or heteroscedasticity).*")
+        if _is_logistic:
+            _resid_subtitle = mo.md("*Calibration plot: Points on the diagonal = well-calibrated. Above diagonal = underconfident (predicted too low). Below = overconfident (predicted too high).*")
+        else:
+            _resid_subtitle = mo.md("*Checks model assumptions. Look for: random scatter around zero (good), patterns/funnel shapes (bad — suggests non-linearity or heteroscedasticity).*")
         _reg_with_subtitle = mo.vstack([plot_output, _reg_subtitle], gap=1)
         _resid_with_subtitle = mo.vstack([_resid_plot, _resid_subtitle], gap=1)
         _plots_row = mo.hstack([_reg_with_subtitle, _resid_with_subtitle], widths=[1, 1], gap=2, justify="center")
