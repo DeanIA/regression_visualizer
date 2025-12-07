@@ -422,14 +422,14 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
         equation_subtitle = f"where {x_label} = 0 for {g0_label}, 1 for {g1_label}"
     elif is_binned:
         # Binned/categorical model: y = β₀ + β₁(Bin2) + β₂(Bin3) + ...
-        n_bins = n_bins_slider.value
-        eq_parts = ["β₀"]
-        bin_explanations = []
-        for i in range(2, n_bins + 1):
-            eq_parts.append(f"β{i-1}(Bin{i})")
-            bin_explanations.append(f"Bin{i}=1 if in bin {i}, 0 otherwise")
-        equation = f"{y_label} = " + " + ".join(eq_parts)
-        equation_subtitle = f"Bin1 is reference; " + "; ".join(bin_explanations)
+        _n_bins = n_bins_slider.value
+        _eq_parts = ["β₀"]
+        _bin_explanations = []
+        for _i in range(2, _n_bins + 1):
+            _eq_parts.append(f"β{_i-1}(Bin{_i})")
+            _bin_explanations.append(f"Bin{_i}=1 if in bin {_i}, 0 otherwise")
+        equation = f"{y_label} = " + " + ".join(_eq_parts)
+        equation_subtitle = f"Bin1 is reference; " + "; ".join(_bin_explanations)
     elif x_term is None:
         equation = f"{y_label} = {intercept:.1f}"
         equation_subtitle = "constant model, no predictor"
