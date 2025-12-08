@@ -1,0 +1,1 @@
+This is a regression visualizer based on the material in 'Regression and Other Stories' by Andrew Gelman and Jennifer Hill. Created to prepare for the final exam in Dr. Ravi Shroff's class Intermediate Quantitative Methods at Applied Statistics Depratment at NYU. 
