@@ -276,11 +276,17 @@ def _(is_binary, is_logistic, mo):
         label=_intercept_label,
         show_value=True
     )
-    return intercept_slider, slope_slider
+    # Threshold slider for logistic regression classification
+    threshold_slider = mo.ui.slider(
+        start=0.0, stop=1.0, step=0.05, value=0.5,
+        label="Classification Threshold",
+        show_value=True
+    )
+    return intercept_slider, slope_slider, threshold_slider
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous3_hold, has_grouping, intercept_slider, is_binary, is_continuous, is_multiple, mo, slope_slider, x_transform):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous3_hold, has_grouping, intercept_slider, is_binary, is_continuous, is_logistic, is_multiple, mo, slope_slider, threshold_slider, x_transform):
     # Build display based on model type
     if is_multiple and has_grouping:
         # Categorical variable mode: x + Group + optional interaction + optional 3rd predictor
@@ -312,6 +318,11 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
         _display = mo.vstack([
             mo.hstack([slope_slider, intercept_slider], justify="start", gap=4),
             x_transform
+        ], gap=2)
+    elif is_logistic:
+        _display = mo.vstack([
+            mo.hstack([slope_slider, intercept_slider], justify="start", gap=4),
+            threshold_slider
         ], gap=2)
     else:
         _display = mo.hstack([slope_slider, intercept_slider], justify="start", gap=4)
@@ -360,7 +371,7 @@ def _(ci_level, is_logistic, mo, pi_level, sd_multiplier, show_ci, show_pi, show
 
 
 @app.cell
-def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_binned, is_logistic, is_multiple, mo, n_bins_slider, np, slope_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
+def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, beta_continuous3, beta_group, beta_interaction, beta_interaction_cont, continuous2_hold, continuous2_name, continuous3_hold, continuous3_name, dist_type, group0_name, group0_name_multi, group1_name, group1_name_multi, group_var_name, has_grouping, intercept_slider, is_binary, is_binned, is_logistic, is_multiple, mo, n_bins_slider, np, slope_slider, threshold_slider, w_max, w_mean, w_min, w_sd, x_max, x_mean, x_min, x_sd, x_name, x_transform, y_name, z_max, z_mean, z_min, z_sd):
     x_label = "x" if is_binary else (x_name.value or "x")
     y_label = y_name.value or "y"
     slope = slope_slider.value
@@ -460,8 +471,18 @@ def _(add_continuous3, add_interaction, add_interaction_cont, beta_continuous2, 
     elif is_logistic:
         _odds_ratio = np.exp(slope)
         _prob_at_zero = 1 / (1 + np.exp(-intercept))
+        _threshold = threshold_slider.value
+        # Calculate x value where P(Y=1) = threshold
+        # P = 1/(1+exp(-z)) = threshold → z = log(threshold/(1-threshold))
+        # β₀ + β₁*x = z → x = (z - β₀) / β₁
+        if 0 < _threshold < 1 and slope != 0:
+            _z_threshold = np.log(_threshold / (1 - _threshold))
+            _x_decision = (_z_threshold - intercept) / slope
+            _decision_text = f"Predict {y_label}=1 when {x_label} {'>' if slope > 0 else '<'} **{_x_decision:.1f}**"
+        else:
+            _decision_text = ""
         equation = f"log(odds) = **{intercept:.2f}** + **{slope:.2f}** × {x_label}"
-        equation_subtitle = f"Odds Ratio = e^{slope:.2f} = **{_odds_ratio:.3f}** — P({y_label}=1|{x_label}=0) = **{_prob_at_zero:.2f}**"
+        equation_subtitle = f"OR = **{_odds_ratio:.3f}** — {_decision_text} (threshold={_threshold})"
     elif is_binned:
         # Binned/categorical model: y = β₀ + β₁(Bin2) + β₂(Bin3) + ...
         _n_bins = n_bins_slider.value
@@ -785,7 +806,7 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, g0_label, g0
 
 
 @app.cell
-def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_logistic, is_multiple, is_uniform, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_mu, x_sigma, x_term, y_label, z_hi, z_hold, z_label, z_lo):
+def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0_label, g0_multi_label, g1_label, g1_multi_label, go, grp_var_label, has_cont3, has_grouping, has_interaction, has_interaction_cont, intercept, is_binary, is_binned, is_logistic, is_multiple, is_uniform, mo, n_bins_slider, n_points_slider, noise_slider, np, pi_level, sd_multiplier, seed_slider, show_ci, show_pi, show_sd, slope, stats, threshold_slider, transform, w_hi, w_hold, w_label, w_lo, x_hi, x_label, x_lo, x_mu, x_sigma, x_term, y_label, z_hi, z_hold, z_label, z_lo):
     # Fixed axis ranges
     Y_MIN, Y_MAX = 0, 50
 
@@ -1304,32 +1325,59 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
         _jitter_amount = 0.03
         y_jittered = y_data + np.random.uniform(-_jitter_amount, _jitter_amount, n)
 
-        # Plot data points colored by outcome
-        _colors = np.where(y_data == 1, "#EF553B", "#636EFA")
+        # Classify based on threshold
+        _pred_class = (_prob >= threshold_slider.value).astype(int)
+
+        # Color by classification correctness: TP=green, TN=blue, FP=orange, FN=red
+        _colors = []
+        for _actual, _pred in zip(y_data, _pred_class):
+            if _actual == 1 and _pred == 1:  # True Positive
+                _colors.append("#2CA02C")  # green
+            elif _actual == 0 and _pred == 0:  # True Negative
+                _colors.append("#1F77B4")  # blue
+            elif _actual == 0 and _pred == 1:  # False Positive
+                _colors.append("#FF7F0E")  # orange
+            else:  # False Negative (_actual == 1 and _pred == 0)
+                _colors.append("#D62728")  # red
+
         fig.add_trace(
             go.Scatter(
                 x=x_data,
                 y=y_jittered,
                 mode="markers",
                 name="Data",
-                marker=dict(color=_colors, size=8, opacity=0.6),
+                marker=dict(color=_colors, size=8, opacity=0.7),
                 showlegend=False,
             )
         )
 
-        # Add legend entries for outcomes
+        # Add legend entries for classification outcomes
         fig.add_trace(
             go.Scatter(
                 x=[None], y=[None], mode="markers",
-                name=f"{y_label}=0",
-                marker=dict(color="#636EFA", size=8),
+                name="True Positive",
+                marker=dict(color="#2CA02C", size=8),
             )
         )
         fig.add_trace(
             go.Scatter(
                 x=[None], y=[None], mode="markers",
-                name=f"{y_label}=1",
-                marker=dict(color="#EF553B", size=8),
+                name="True Negative",
+                marker=dict(color="#1F77B4", size=8),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None], mode="markers",
+                name="False Positive",
+                marker=dict(color="#FF7F0E", size=8),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=[None], y=[None], mode="markers",
+                name="False Negative",
+                marker=dict(color="#D62728", size=8),
             )
         )
 
@@ -1426,6 +1474,17 @@ def _(b_cont2, b_cont3, b_group, b_interaction, b_interaction_cont, ci_level, g0
                     showlegend=True,
                 )
             )
+
+        # Add threshold line
+        fig.add_trace(
+            go.Scatter(
+                x=[0, 50],
+                y=[threshold_slider.value, threshold_slider.value],
+                mode="lines",
+                name=f"Threshold ({threshold_slider.value:.2f})",
+                line=dict(color="red", width=2, dash="dash"),
+            )
+        )
 
         # Store for reg_stats
         _ols_intercept = _mle_intercept  # Using MLE as "OLS" for compatibility
@@ -2239,7 +2298,74 @@ p-value: {_f_pval:.2e}
 *(True DGP: β₀ = {intercept:.1f}, β₁ = {slope:.1f})*
 """
 
-            if transform == "Constant (no x)":
+            if reg_stats.get("is_binary", False):
+                # Binary mode - means comparison interpretation (check first, ignores transform)
+                _g0_label = reg_stats["g0_label"]
+                _g1_label = reg_stats["g1_label"]
+                _intercept_interp = f"The estimated mean of **{y_label}** for **{_g0_label}** is **{_ols_intercept:.2f}**."
+
+                if _ols_slope > 0:
+                    _direction = "higher"
+                elif _ols_slope < 0:
+                    _direction = "lower"
+                else:
+                    _direction = "the same as"
+
+                if _ols_slope != 0:
+                    _slope_interp = f"**{_g1_label}** has a mean **{y_label}** that is **{abs(_ols_slope):.2f}** units {_direction} than **{_g0_label}**. (Estimated mean for {_g1_label} = {_ols_intercept + _ols_slope:.2f})"
+                else:
+                    _slope_interp = f"**{_g1_label}** and **{_g0_label}** have approximately the same mean **{y_label}** (no group difference)."
+
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):**
+{_intercept_interp}
+
+**Group Difference (β₁ = {_ols_slope:.2f}):**
+{_slope_interp}
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
+{_model_fit}"""
+            elif reg_stats.get("is_binned", False):
+                # Binned mode - categorical dummy interpretation (check before transforms)
+                _bin_labels = reg_stats["bin_labels"]
+                _bin_coefs = reg_stats["bin_coefs"]
+                _se_betas = reg_stats["se_betas"]
+                _n_bins = reg_stats["n_bins"]
+
+                _intercept_interp = f"The estimated mean of **{y_label}** for **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
+
+                # Build interpretation for each bin coefficient
+                _bin_interps = []
+                for _bi in range(_n_bins - 1):
+                    _coef = _bin_coefs[_bi]
+                    _se_bin = _se_betas[_bi + 1]
+                    _t_bin = _coef / _se_bin if _se_bin > 0 else 0
+                    _mean_bin = _ols_intercept + _coef
+
+                    if _coef > 0:
+                        _dir = "higher"
+                    elif _coef < 0:
+                        _dir = "lower"
+                    else:
+                        _dir = "the same as"
+
+                    _bin_interps.append(f"- **{_bin_labels[_bi + 1]}**: mean = **{_mean_bin:.2f}** ({abs(_coef):.2f} units {_dir} than reference, t={_t_bin:.2f})")
+
+                _bins_text = "\n".join(_bin_interps)
+
+                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
+
+**Intercept (β₀ = {_ols_intercept:.2f}):**
+{_intercept_interp}
+
+**Bin Effects (relative to {_bin_labels[0]}):**
+{_bins_text}
+
+- *SE: standard error of the estimate; smaller = more precise*
+- *t = β/SE: how many SEs the coefficient is from zero*
+{_model_fit}"""
+            elif transform == "Constant (no x)":
                 # Constant model - intercept only
                 _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
 
@@ -2361,80 +2487,6 @@ The predicted value of **{y_label}** is always **{_ols_intercept:.2f}**, regardl
 {_slope_interp}
 - *SE: standard error of the estimate; smaller = more precise*
 - *t = β/SE: how many SEs the coefficient is from zero*
-{_model_fit}"""
-            elif reg_stats.get("is_binary", False):
-                # Binary mode - means comparison interpretation
-                _g0_label = reg_stats["g0_label"]
-                _g1_label = reg_stats["g1_label"]
-                _intercept_interp = f"The estimated mean of **{y_label}** for **{_g0_label}** is **{_ols_intercept:.2f}**."
-
-                if _ols_slope > 0:
-                    _direction = "higher"
-                elif _ols_slope < 0:
-                    _direction = "lower"
-                else:
-                    _direction = "the same as"
-
-                if _ols_slope != 0:
-                    _slope_interp = f"**{_g1_label}** has a mean **{y_label}** that is **{abs(_ols_slope):.2f}** units {_direction} than **{_g0_label}**. (Estimated mean for {_g1_label} = {_ols_intercept + _ols_slope:.2f})"
-                else:
-                    _slope_interp = f"**{_g1_label}** and **{_g0_label}** have approximately the same mean **{y_label}** (no group difference)."
-
-                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
-
-**Intercept (β₀ = {_ols_intercept:.2f}):**
-{_intercept_interp}
-
-**Group Difference (β₁ = {_ols_slope:.2f}):**
-{_slope_interp}
-- *SE: standard error of the estimate; smaller = more precise*
-- *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
-{_model_fit}"""
-            elif reg_stats.get("is_binned", False):
-                # Binned mode - categorical dummy interpretation
-                _bin_labels = reg_stats["bin_labels"]
-                _bin_coefs = reg_stats["bin_coefs"]
-                _se_betas = reg_stats["se_betas"]
-                _n_bins = reg_stats["n_bins"]
-
-                _intercept_interp = f"The estimated mean of **{y_label}** for **{_bin_labels[0]}** (reference group) is **{_ols_intercept:.2f}**."
-
-                # Build interpretation for each bin coefficient
-                _bin_interps = []
-                for _i in range(_n_bins - 1):
-                    _coef = _bin_coefs[_i]
-                    _se_bin = _se_betas[_i + 1]
-                    _t_bin = _coef / _se_bin if _se_bin > 0 else 0
-                    _mean_bin = _ols_intercept + _coef
-
-                    if _coef > 0:
-                        _direction = "higher"
-                    elif _coef < 0:
-                        _direction = "lower"
-                    else:
-                        _direction = "the same as"
-
-                    _bin_interps.append(
-                        f"**{_bin_labels[_i + 1]}** (β = {_coef:.2f}, SE = {_se_bin:.2f}, t = {_t_bin:.2f}): "
-                        f"Mean **{y_label}** is **{abs(_coef):.2f}** units {_direction} than {_bin_labels[0]}. "
-                        f"(Estimated mean = {_mean_bin:.2f})"
-                    )
-
-                _bin_interp_text = "\n\n".join(_bin_interps)
-
-                _coef_text_final = f"""### Coefficient Interpretation (OLS Estimates)
-
-*Categorical model: {_bin_labels[0]} is the reference group.*
-
-**Intercept (β₀ = {_ols_intercept:.2f}, SE = {_se_betas[0]:.2f}):**
-{_intercept_interp}
-
-**Bin Differences (vs. reference):**
-
-{_bin_interp_text}
-
-- *SE: standard error of the estimate; smaller = more precise*
-- *t = β/SE: how many SEs the coefficient is from zero; |t| > 2 suggests significance*
 {_model_fit}"""
             else:
                 # No transformation - standard linear regression
