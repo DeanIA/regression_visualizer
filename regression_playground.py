@@ -17,7 +17,7 @@ def _():
 def _(mo):
     mo.md("""# Regression Visualizer
 
-Created by Dean Issacharoff based on *Regression and Other Stories* by Andrew Gelman and Jennifer Hill. R Summaries and OLS calculations use SciPy Python library. Let me know if you find a bug. Sharing is caring, MIT License etc...
+Based on *Regression and Other Stories* by Andrew Gelman and Jennifer Hill. R Summaries and OLS calculations use SciPy Python library. Sharing is caring, MIT License etc. Created by Dean Issacharoff let me know if you find any bugs.
 
 [GitHub Repository](https://github.com/DeanIA/regression_visualizer)
 """)
