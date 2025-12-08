@@ -17,7 +17,7 @@ def _():
 def _(mo):
     mo.md("""# Regression Visualizer
 
-This is a regression visualizer based on the material in 'Regression and Other Stories' by Andrew Gelman and Jennifer Hill. Created to prepare for the final exam in Dr. Ravi Shroff's Intermediate Quantitative Methods course at the Applied Statistics Depratment, NYU. Sharing is caring, MIT License etc. *Created by Dean Issacharoff let me know if you find any bugs.*
+Based on the material in 'Regression and Other Stories' by Andrew Gelman and Jennifer Hill. Created to prepare for the final exam in Dr. Ravi Shroff's Intermediate Quantitative Methods course at the Applied Statistics Depratment, NYU. Sharing is caring, MIT License etc. *Created by Dean Issacharoff let me know if you find any bugs.*
 
 [GitHub Repository](https://github.com/DeanIA/regression_visualizer)
 """)
