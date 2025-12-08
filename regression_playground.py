@@ -17,7 +17,7 @@ def _():
 def _(mo):
     mo.md("""# Regression Visualizer
 
-Created by Dean Issacharoff based on *Regression and Other Stories* by Andrew Gelman and Jennifer Hill. Might contain bugs, don't use for exact calculations. R Summaries and OLS calculations use SciPy Python library. Let me know if you find a bug. Sharing is caring, MIT License etc...
+Created by Dean Issacharoff based on *Regression and Other Stories* by Andrew Gelman and Jennifer Hill. R Summaries and OLS calculations use SciPy Python library. Let me know if you find a bug. Sharing is caring, MIT License etc...
 
 [GitHub Repository](https://github.com/DeanIA/regression_visualizer)
 """)
@@ -37,9 +37,9 @@ def _(mo):
             "Basic Linear Regression",
             "Binary (Means Comparison)",
             "Binned (Categorized)",
-            "Logistic Regression",
             "Multivariable: Categorical",
             "Multivariable: Continuous",
+            "Logistic Regression",
         ],
         value="Basic Linear Regression",
     )
